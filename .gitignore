@@ -1,0 +1,55 @@
+# Bytecode do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambiente virtual
+.env
+.venv
+env/
+venv/
+
+# Diretórios de build e distribuição
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Caches de testes e cobertura
+.cache/
+.pytest_cache/
+.mypy_cache/
+coverage.xml
+.tox/
+.nox/
+htmlcov/
+
+# Logs e arquivos temporários
+*.log
+*.tmp
+
+# Arquivos e pastas geradas por editores/IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.ipynb_checkpoints
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos de configuração sensíveis
+configs/config.yaml
+configs/logging.yaml
+
+# Outros artefatos
+pip-wheel-metadata/
+*.whl
+
+# Não versionar arquivos de cache do pip
+~/.cache/pip
+
+# Ignorar dados temporários ou de armazenamento
+src/armazenamento/logs/
+src/armazenamento/database.db
