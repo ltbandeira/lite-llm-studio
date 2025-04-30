@@ -51,5 +51,4 @@ pip-wheel-metadata/
 ~/.cache/pip
 
 # Ignorar dados temporários ou de armazenamento
-src/armazenamento/logs/
-src/armazenamento/database.db
+data/
