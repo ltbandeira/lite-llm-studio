@@ -17,11 +17,11 @@ Este projeto tem como objetivo desenvolver uma ferramenta integrada para o ajust
 │   └── notebooks/
 ├── logs/
 ├── models/
+├── orchestrator/
 ├── src/
 │   ├── data_processing/
 │   ├── modeling/
 │   ├── monitoring/
-│   ├── training/
 │   └── utils/
 ├── tests/
 ├── .gitignore
