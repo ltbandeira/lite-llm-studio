@@ -1,54 +1,63 @@
-# Bytecode do Python
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Ambiente virtual
+# Config and secrets
 .env
-.venv
-env/
+.env.*
+
+# Virtual environments
 venv/
+env/
+.env/
 
-# Diretórios de build e distribuição
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# Caches de testes e cobertura
-.cache/
-.pytest_cache/
-.mypy_cache/
-coverage.xml
+# Tests and code coverage reports
+htmlcov/
 .tox/
 .nox/
-htmlcov/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+__pycache__/
+.mypy_cache/
 
-# Logs e arquivos temporários
-*.log
-*.tmp
+# Compiled Python bytecode
+*.py[cod]
 
-# Arquivos e pastas geradas por editores/IDE
+# IDEs and Editors
 .vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
-*.ipynb_checkpoints
+.ipynb_checkpoints/
 
-# Arquivos do sistema
+# Data files and Databases
+data/raw/
+data/external/
+data/processed/
+db/
+*.db
+
+# Log files
+logs/
+*.log
+
+# Artifacts
+models/
+reports/
+
+# System files
 .DS_Store
 Thumbs.db
 
-# Arquivos de configuração sensíveis
-configs/config.yaml
-configs/logging.yaml
+# Large media files
+*.mp4
+*.tiff
+*.avi
+*.flv
+*.mov
+*.wmv
 
-# Outros artefatos
-pip-wheel-metadata/
-*.whl
-
-# Não versionar arquivos de cache do pip
-~/.cache/pip
-
-# Ignorar dados temporários ou de armazenamento
-data/
+# Applications
+*.app
+*.exe
+*.war

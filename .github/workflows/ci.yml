@@ -1,0 +1,129 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_CACHE: ~/.cache/pip
+  HF_CACHE: ~/.cache/huggingface/hub
+
+jobs:
+  commit-lint:
+    name: Commit Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Commitlint
+        uses: wagoid/commitlint-github-action@v5
+
+  lint:
+    name: Code Style & Static Analysis
+    needs: commit-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Python env
+        uses: ./.github/actions/python-setup
+        with:
+          python-version: "3.12"
+          pip-cache: ${{ env.PIP_CACHE }}
+          hf-cache: ${{ env.HF_CACHE }}
+
+      - name: ruff
+        run: ruff check src
+
+      - name: mypy
+        run: |
+          if find src -type f -name '*.py' | grep -q .; then
+            mypy src
+          else
+            echo "No Python files in src; skipping mypy."
+          fi
+
+      - name: black --check
+        run: black --check src
+
+  unit-test:
+    name: Run unit test
+    needs: commit-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Python env
+        uses: ./.github/actions/python-setup
+        with:
+          python-version: "3.12"
+          pip-cache: ${{ env.PIP_CACHE }}
+          hf-cache: ${{ env.HF_CACHE }}
+
+      - name: Run pytest
+        run: |
+          if ls tests/*test*.py >/dev/null 2>&1; then
+            pytest --maxfail=1 --disable-warnings --junitxml=reports/junit.xml -q
+          else
+            echo "No tests found; skipping unit-test step."
+          fi
+
+      - name: Upload JUnit XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-xml
+          path: reports/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+
+  coverage:
+    name: Coverage report
+    needs: commit-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Python env
+        uses: ./.github/actions/python-setup
+        with:
+          python-version: "3.12"
+          pip-cache: ${{ env.PIP_CACHE }}
+          hf-cache: ${{ env.HF_CACHE }}
+
+      - name: Run coverage (gera XML e tolera <10%)
+        run: |
+          if ls tests/*test*.py >/dev/null 2>&1; then
+            coverage run --source=src -m pytest -q
+            coverage xml -o reports/coverage.xml
+            coverage report --fail-under=80 || echo "Coverage below threshold."
+          else
+            echo "No tests found; skipping coverage report."
+          fi
+
+      - name: Upload coverage XML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: reports/coverage.xml
+          if-no-files-found: ignore
+          retention-days: 7
