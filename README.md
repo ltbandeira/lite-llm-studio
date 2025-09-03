@@ -1,1 +1,1 @@
-# LiteLLM
+# LiteLLM Studio

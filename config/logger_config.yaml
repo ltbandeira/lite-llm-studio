@@ -1,0 +1,54 @@
+version: 1
+disable_existing_loggers: true
+
+formatters:
+  simple:
+    format: "[%(asctime)s] %(levelname)s %(name)s - %(message)s"
+
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: simple
+    level: INFO
+  
+  # Weekly file handler for app.orchestrator
+  orchestrator_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: simple
+    level: DEBUG
+    filename: logs/orchestrator.log
+    when: midnight
+    interval: 7
+    backupCount: 3
+    encoding: utf-8
+  
+  # Weekly file handler for app.scanner
+  scanner_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: simple
+    level: DEBUG
+    filename: logs/scanner.log
+    when: midnight
+    interval: 7
+    backupCount: 3
+    encoding: utf-8
+
+loggers:
+  app:
+    handlers: [console]
+    level: INFO
+    propagate: no
+  
+  app.orchestrator:
+    handlers: [orchestrator_file]
+    level: DEBUG
+    propagate: no
+
+  app.scanner:
+    handlers: [scanner_file]
+    level: DEBUG
+    propagate: no
+
+root:
+  level: WARNING
+  handlers: [console]
