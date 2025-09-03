@@ -1,20 +1,20 @@
 name: python-setup
-description: Checkout, caches (pip/HF), setup Python e instalação do projeto
+description: Checkout, caches (pip/HF), Python setup, and project installation
 inputs:
   python-version:
-    description: Versão do Python
+    description: Python version
     default: "3.12"
     required: false
   pip-cache:
-    description: Caminho do cache do pip
+    description: Pip cache path
     default: ~/.cache/pip
     required: false
   hf-cache:
-    description: Caminho do cache do Hugging Face
+    description: Hugging Face cache path
     default: ~/.cache/huggingface/hub
     required: false
   working-directory:
-    description: Diretório onde está o pyproject.toml
+    description: Directory where pyproject.toml is located
     default: "."
     required: false
 
@@ -42,7 +42,7 @@ runs:
         restore-keys: |
           ${{ runner.os }}-hf-
 
-    - name: Instalação (editable) e criação de reports/
+    - name: Installation and reports/ creation
       shell: bash
       run: |
         python -m pip install --upgrade pip

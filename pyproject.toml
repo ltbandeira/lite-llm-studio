@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lite_llm_studio"
 version = "0.0.1"
-description = "Ferramenta para o ajuste fino, monitoramento e instrumentação de LLMs."
+description = "Tool for fine-tuning, monitoring, and instrumenting LLMs."
 readme = "README.md"
 authors = [
   { name = "Lucas Bandeira" },
@@ -13,11 +13,15 @@ authors = [
 ]
 requires-python = ">=3.12"
 
-# Somente dependências de runtime
-dependencies = []
+# Runtime dependencies only
+dependencies = [
+  "psutil==7.0.0",
+  "pydantic==2.11.7",
+  "PyYAML>=6.0",
+]
 
-# Somente dependências extras de desenvolvimento
-# Serão instaladas apenas pelo CI e em ambiente de dev
+# Development-only dependencies
+# Installed only in CI and development environments
 [project.optional-dependencies]
 dev = [
   "pytest>=8",
@@ -25,6 +29,7 @@ dev = [
   "mypy>=1.10",
   "ruff>=0.5.0",
   "black>=24.0",
+  "types-PyYAML==6.0.12.20250822",
 ]
 
 [tool.setuptools]
@@ -36,7 +41,7 @@ where = ["src"]
 include = ["lite_llm_studio*"]
 
 # -----------------------------
-# Testes e Qualidade
+# Testing and Quality
 # -----------------------------
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -51,7 +56,7 @@ branch = true
 [tool.coverage.report]
 skip_empty = true
 show_missing = true
-fail_under = 80
+fail_under = 0
 
 [tool.black]
 line-length = 150

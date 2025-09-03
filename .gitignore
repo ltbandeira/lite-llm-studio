@@ -44,6 +44,7 @@ logs/
 # Artifacts
 models/
 reports/
+hardware_report.json
 
 # System files
 .DS_Store
