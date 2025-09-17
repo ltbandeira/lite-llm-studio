@@ -2,38 +2,116 @@ version: 1
 disable_existing_loggers: true
 
 formatters:
-  simple:
-    format: "[%(asctime)s] %(levelname)s %(name)s - %(message)s"
+  detailed:
+    format: "[%(asctime)s] %(levelname)-5s %(name)-10s [%(module)s:%(funcName)s:%(lineno)d] - %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S"
 
 handlers:
   console:
     class: logging.StreamHandler
-    formatter: simple
-    level: INFO
+    formatter: detailed
+    level: WARNING
+  
+  # ============================
+  # Backend Handlers (Core)
+  # ============================
   
   # Weekly file handler for app.orchestrator
   orchestrator_file:
     class: logging.handlers.TimedRotatingFileHandler
-    formatter: simple
+    formatter: detailed
     level: DEBUG
     filename: logs/orchestrator.log
     when: midnight
     interval: 7
-    backupCount: 3
+    backupCount: 1
     encoding: utf-8
   
   # Weekly file handler for app.scanner
   scanner_file:
     class: logging.handlers.TimedRotatingFileHandler
-    formatter: simple
+    formatter: detailed
     level: DEBUG
     filename: logs/scanner.log
     when: midnight
     interval: 7
-    backupCount: 3
+    backupCount: 1
+    encoding: utf-8
+  
+  # ============================
+  # Streamlit Handlers (App)
+  # ============================
+  
+  # Main Streamlit app handler
+  streamlit_app_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: detailed
+    level: DEBUG
+    filename: logs/streamlit_app.log
+    when: midnight
+    interval: 7
+    backupCount: 1
+    encoding: utf-8
+  
+  # Home page handler
+  streamlit_home_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: detailed
+    level: DEBUG
+    filename: logs/app_home.log
+    when: midnight
+    interval: 7
+    backupCount: 1
+    encoding: utf-8
+  
+  # Hardware page handler
+  streamlit_hardware_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: detailed
+    level: DEBUG
+    filename: logs/app_hardware.log
+    when: midnight
+    interval: 7
+    backupCount: 1
+    encoding: utf-8
+  
+  # Training page handler
+  streamlit_training_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: detailed
+    level: DEBUG
+    filename: logs/app_training.log
+    when: midnight
+    interval: 7
+    backupCount: 1
+    encoding: utf-8
+  
+  # Navigation handler
+  streamlit_navigation_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: detailed
+    level: DEBUG
+    filename: logs/app_navigation.log
+    when: midnight
+    interval: 7
+    backupCount: 1
+    encoding: utf-8
+  
+  # Components handler
+  streamlit_components_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: detailed
+    level: DEBUG
+    filename: logs/app_components.log
+    when: midnight
+    interval: 7
+    backupCount: 1
     encoding: utf-8
 
 loggers:
+  # ============================
+  # Backend Loggers
+  # ============================
   app:
     handlers: [console]
     level: INFO
@@ -46,6 +124,39 @@ loggers:
 
   app.scanner:
     handlers: [scanner_file]
+    level: DEBUG
+    propagate: no
+  
+  # ============================
+  # Frontend Loggers
+  # ============================
+  app.streamlit:
+    handlers: [streamlit_app_file]
+    level: INFO
+    propagate: no
+  
+  app.pages.home:
+    handlers: [streamlit_home_file]
+    level: INFO
+    propagate: no
+  
+  app.pages.hardware:
+    handlers: [streamlit_hardware_file]
+    level: INFO
+    propagate: no
+  
+  app.pages.training:
+    handlers: [streamlit_training_file]
+    level: INFO
+    propagate: no
+  
+  app.navigation:
+    handlers: [streamlit_navigation_file]
+    level: INFO
+    propagate: no
+  
+  app.components:
+    handlers: [streamlit_components_file]
     level: DEBUG
     propagate: no
 
