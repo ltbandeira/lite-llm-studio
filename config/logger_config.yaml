@@ -38,6 +38,17 @@ handlers:
     backupCount: 1
     encoding: utf-8
   
+  # Weekly file handler for app.runtime.llamacpp
+  llamacpp_runtime_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: detailed
+    level: DEBUG
+    filename: logs/llamacpp_runtime.log
+    when: midnight
+    interval: 7
+    backupCount: 1
+    encoding: utf-8
+
   # ============================
   # Streamlit Handlers (App)
   # ============================
@@ -124,6 +135,11 @@ loggers:
 
   app.scanner:
     handlers: [scanner_file]
+    level: DEBUG
+    propagate: no
+  
+  app.runtime.llamacpp:
+    handlers: [llamacpp_runtime_file]
     level: DEBUG
     propagate: no
   

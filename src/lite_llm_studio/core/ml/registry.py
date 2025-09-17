@@ -48,6 +48,30 @@ class ModelRegistry:
     def all(self) -> list[ModelCard]:
         return list(self._cards.values())
 
+    def _detect_model_family(self, filename: str) -> str:
+        """
+        Auto-detect model family from filename patterns.
+
+        Args:
+            filename: The model filename (without extension)
+
+        Returns:
+            str: Detected model family name
+        """
+        filename_lower = filename.lower()
+
+        # Common model family patterns
+        if any(pattern in filename_lower for pattern in ["llama", "llama2", "llama3", "code-llama"]):
+            return "LLaMA"
+        elif any(pattern in filename_lower for pattern in ["qwen", "qwen2", "qwen-chat"]):
+            return "Qwen"
+        elif any(pattern in filename_lower for pattern in ["mistral", "mixtral", "codestral"]):
+            return "Mistral"
+        elif any(pattern in filename_lower for pattern in ["phi", "phi-2", "phi-3"]):
+            return "Phi"
+        else:
+            return "Unknown"
+
     def get(self, slug: str) -> ModelCard | None:
         return self._cards.get(slug)
 
@@ -69,13 +93,17 @@ class ModelRegistry:
         name = gguf_path.stem
         slug = name.lower().replace(" ", "-")
         artifacts = ArtifactInfo(model_path=str(gguf_path.name))
+
+        # Auto-detect model family from filename
+        family = self._detect_model_family(name)
+
         return ModelCard(
             name=name,
             slug=slug,
             artifacts=artifacts,
             runtime="llamacpp",
             root_dir=str(gguf_path.parent),
-            family="LLaMA",
+            family=family,
             task="chat",
             quantization={"format": "gguf"},
             tags=["discovered"],

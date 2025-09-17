@@ -4,8 +4,6 @@ Module core.configuration.model_schema
 
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Literal
 
@@ -15,9 +13,13 @@ from .base_config import BaseConfigModel
 
 
 class RuntimeSpec(BaseConfigModel):
-    n_ctx: PositiveInt = Field(4096, description="Tamanho do contexto")
-    n_threads: PositiveInt | None = Field(None, description="Threads CPU (None => auto)")
-    n_gpu_layers: int = Field(0, description="Quantas camadas na GPU (0 = apenas CPU)")
+    """
+    Runtime specifications for model loading and inference.
+    """
+
+    n_ctx: PositiveInt = Field(4096, description="Context size")
+    n_threads: PositiveInt | None = Field(None, description="CPU threads (None => auto)")
+    n_gpu_layers: int = Field(-1, description="Number of layers on GPU (-1 = all)")
 
     def to_dict(self):
         return super().to_dict()
@@ -27,6 +29,10 @@ class RuntimeSpec(BaseConfigModel):
 
 
 class GenParams(BaseConfigModel):
+    """
+    Generation parameters for model inference.
+    """
+
     temperature: float = Field(0.6, ge=0.0, le=2.0)
     top_p: float = Field(0.9, ge=0.0, le=1.0)
     max_new_tokens: PositiveInt = Field(256)
@@ -40,7 +46,11 @@ class GenParams(BaseConfigModel):
 
 
 class ArtifactInfo(BaseConfigModel):
-    model_path: StrictStr = Field(..., description="Caminho absoluto ou relativo do .gguf / diretório HF")
+    """
+    Information about the model artifacts.
+    """
+
+    model_path: StrictStr = Field(..., description="Absolute or relative path to the .gguf / HF directory")
     tokenizer_json: StrictStr | None = None
 
     def path_obj(self, root: Path | None = None) -> Path:
@@ -57,10 +67,14 @@ class ArtifactInfo(BaseConfigModel):
 
 
 class ModelCard(BaseConfigModel):
+    """
+    Model card with metadata and configuration.
+    """
+
     name: StrictStr
     slug: StrictStr
     version: StrictStr = "0.1.0"
-    family: StrictStr = "LLaMA"
+    family: Literal["LLaMA", "Qwen", "Mistral", "Phi", "Unknown"] = "LLaMA"
     task: Literal["chat", "completion"] = "chat"
 
     runtime: Literal["llamacpp"] = "llamacpp"
@@ -73,7 +87,7 @@ class ModelCard(BaseConfigModel):
 
     root_dir: StrictStr | None = Field(
         default=None,
-        description="Diretório raiz do modelo (preenchido pelo registry na descoberta).",
+        description="Root directory of the model (filled by the registry during discovery).",
     )
 
     @field_validator("slug")

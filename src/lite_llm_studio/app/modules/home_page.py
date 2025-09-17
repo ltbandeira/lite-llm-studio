@@ -22,9 +22,22 @@ from lite_llm_studio.core.configuration.desktop_app_config import (
     get_models_directory_info,
     ensure_directory_exists,
 )
+from lite_llm_studio.core.instrumentation.scanner import HardwareScanner
 
 # Get logger for home page
 logger = logging.getLogger("app.pages.home")
+
+
+# Create a singleton hardware scanner instance
+_hardware_scanner = None
+
+
+def get_hardware_scanner() -> HardwareScanner:
+    """Get or create a singleton hardware scanner instance."""
+    global _hardware_scanner
+    if _hardware_scanner is None:
+        _hardware_scanner = HardwareScanner("app.hardware")
+    return _hardware_scanner
 
 
 def render_home_page():
@@ -58,6 +71,10 @@ def render_home_page():
         st.session_state.is_indexing = False
     if "compose_widget" not in st.session_state:
         st.session_state.compose_widget = ""
+    if "use_gpu" not in st.session_state:
+        st.session_state.use_gpu = False
+    if "gpu_layers" not in st.session_state:
+        st.session_state.gpu_layers = 0
 
     # Section 1: Models Directory and Indexing
     render_models_directory_section()
@@ -211,7 +228,14 @@ def render_model_selection_section():
                 st.session_state.model_loaded = False
                 st.session_state.loaded_model = None
                 # Reset configuration to defaults for the new model
-                st.session_state.model_config = {"temperature": 0.7, "max_tokens": 2048, "top_p": 0.9, "context_length": 4096}
+                st.session_state.model_config = {
+                    "temperature": 0.7,
+                    "max_tokens": 2048,
+                    "top_p": 0.9,
+                    "context_length": 4096,
+                    "use_gpu": False,
+                    "gpu_layers": 0,
+                }
                 # Clear chat history and compose field when switching models
                 st.session_state.chat_history = []
                 st.session_state.message_counter = 0
@@ -231,38 +255,69 @@ def render_model_configuration_section():
         st.info("Please select a model first to configure it.")
         return
 
-    # Configuration card
-    config_card_html = f"""
-    <div class="kpi-grid">
-        <div class="kpi-card">
-            <div class="kpi-icon">{ICONS['settings']}</div>
-            <div class="kpi-body">
-                <div class="kpi-label">Model</div>
-                <div class="kpi-value">{st.session_state.selected_model["name"]}</div>
-                <div class="kpi-help">Configure parameters for model inference</div>
+    # Configuration cards with Compute Mode
+    cards_col, compute_col = st.columns([10, 1], gap="small", vertical_alignment="center")
+
+    with cards_col:
+        # Configuration cards - larger and better spaced
+        config_card_html = f"""
+        <div class="kpi-grid" style="gap: 10px;">
+            <div class="kpi-card" style="flex: 1; min-width: 280px;">
+                <div class="kpi-icon">{ICONS['settings']}</div>
+                <div class="kpi-body">
+                    <div class="kpi-label">Model</div>
+                    <div class="kpi-value" style="font-size: 1.1em;">{st.session_state.selected_model["name"]}</div>
+                    <div class="kpi-help">Configure parameters for model inference</div>
+                </div>
+            </div>
+            <div class="kpi-card" style="flex: 1; min-width: 280px;">
+                <div class="kpi-icon">{ICONS['cpu']}</div>
+                <div class="kpi-body">
+                    <div class="kpi-label">Status</div>
+                    <div class="kpi-value" style="font-size: 1.1em;">{
+                        "Loaded" if (st.session_state.model_loaded and 
+                                    st.session_state.loaded_model and 
+                                    st.session_state.loaded_model == st.session_state.selected_model) 
+                        else "Not Loaded"
+                    }</div>
+                    <div class="kpi-help">{
+                        "Model ready for inference" if (st.session_state.model_loaded and 
+                                                       st.session_state.loaded_model and 
+                                                       st.session_state.loaded_model == st.session_state.selected_model)
+                        else "Load model to begin"
+                    }</div>
+                </div>
             </div>
         </div>
-        <div class="kpi-card">
-            <div class="kpi-icon">{ICONS['cpu']}</div>
-            <div class="kpi-body">
-                <div class="kpi-label">Status</div>
-                <div class="kpi-value">{
-                    "Loaded" if (st.session_state.model_loaded and 
-                                st.session_state.loaded_model and 
-                                st.session_state.loaded_model == st.session_state.selected_model) 
-                    else "Not Loaded"
-                }</div>
-                <div class="kpi-help">{
-                    "Model ready for inference" if (st.session_state.model_loaded and 
-                                                   st.session_state.loaded_model and 
-                                                   st.session_state.loaded_model == st.session_state.selected_model)
-                    else "Load model to begin"
-                }</div>
-            </div>
-        </div>
-    </div>
-    """
-    st.markdown(config_card_html, unsafe_allow_html=True)
+        """
+        st.markdown(config_card_html, unsafe_allow_html=True)
+
+    with compute_col:
+        # Hardware selection next to the cards
+        hardware_scanner = get_hardware_scanner()
+        cuda_available = hardware_scanner.check_cuda_support()
+        gpu_info = hardware_scanner.get_gpu_runtime_info() if cuda_available else {}
+
+        if cuda_available:
+            # Simple CPU/GPU selection
+            use_gpu = st.radio(
+                "Compute Mode",
+                options=["CPU", "GPU"],
+                index=1 if st.session_state.get("use_gpu", False) else 0,
+                help="Choose CPU for compatibility or GPU for speed",
+            )
+
+            if use_gpu == "GPU":
+                st.session_state.use_gpu = True
+                st.session_state.gpu_layers = -1  # Always use all layers for GPU
+            else:
+                st.session_state.use_gpu = False
+                st.session_state.gpu_layers = 0
+        else:
+            # CUDA not available - force CPU mode
+            st.radio("Compute Mode", options=["CPU"], index=0, disabled=True, help="GPU not available")
+            st.session_state.use_gpu = False
+            st.session_state.gpu_layers = 0
 
     st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
 
@@ -300,8 +355,17 @@ def render_model_configuration_section():
             help="Maximum context window size",
         )
 
-    # Update session state with configuration
-    st.session_state.model_config.update({"temperature": temperature, "max_tokens": max_tokens, "top_p": top_p, "context_length": context_length})
+    # Update session state with configuration (including GPU settings)
+    st.session_state.model_config.update(
+        {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": top_p,
+            "context_length": context_length,
+            "use_gpu": st.session_state.get("use_gpu", False),
+            "gpu_layers": st.session_state.get("gpu_layers", 0),
+        }
+    )
 
     st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
 
@@ -499,10 +563,19 @@ def load_model():
         logger.info(f"Loading model: {model_card.name}")
 
         # Create runtime spec from configuration
-        runtime_spec = RuntimeSpec(
-            n_ctx=st.session_state.model_config.get("context_length", 4096), n_threads=None, n_gpu_layers=0 
-        )
-        logger.debug(f"Runtime spec: context={runtime_spec.n_ctx}, gpu_layers={runtime_spec.n_gpu_layers}")
+        use_gpu = st.session_state.model_config.get("use_gpu", False)
+        gpu_layers = st.session_state.model_config.get("gpu_layers", -1) if use_gpu else 0
+        runtime_spec = RuntimeSpec(n_ctx=st.session_state.model_config.get("context_length", 4096), n_threads=None, n_gpu_layers=gpu_layers)
+
+        # Debug info
+        logger.info(f"GPU Configuration Debug:")
+        logger.info(f"  use_gpu from config: {use_gpu}")
+        logger.info(f"  gpu_layers from config: {st.session_state.model_config.get('gpu_layers', 'NOT_SET')}")
+        logger.info(f"  calculated gpu_layers: {gpu_layers}")
+        logger.info(f"  runtime_spec.n_gpu_layers: {runtime_spec.n_gpu_layers}")
+
+        # Show debug info in UI temporarily
+        st.info(f"Debug: GPU={use_gpu}, Layers={gpu_layers}, Config={st.session_state.model_config.get('use_gpu', 'NOT_SET')}")
 
         # Initialize or reinitialize runtime
         if st.session_state.model_runtime is None:
@@ -557,8 +630,7 @@ def send_message(message: str):
                 max_new_tokens=st.session_state.model_config.get("max_tokens", 256),
                 stop=["User:", "System:", "\n\nUser:", "\n\nSystem:"],  # Stop at conversation markers
             )
-            logger.debug(f"Generation params: temp={gen_params.temperature}, "
-                         f"top_p={gen_params.top_p}, max_tokens={gen_params.max_new_tokens}")
+            logger.debug(f"Generation params: temp={gen_params.temperature}, " f"top_p={gen_params.top_p}, max_tokens={gen_params.max_new_tokens}")
 
             # Generate response using the loaded model
             logger.debug("Generating model response...")
