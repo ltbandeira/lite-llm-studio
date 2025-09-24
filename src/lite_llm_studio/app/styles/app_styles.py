@@ -755,6 +755,8 @@ def get_global_styles() -> str:
     .storage-bar.bad  > span {
         background: linear-gradient(90deg, #ef4444, #f87171);
     }
+    
+    
     </style>
     """
 
@@ -762,3 +764,594 @@ def get_global_styles() -> str:
 def load_fonts_and_styles():
     st.markdown(get_google_fonts(), unsafe_allow_html=True)
     st.markdown(get_global_styles(), unsafe_allow_html=True)
+
+
+def get_home_styles() -> str:
+    return """
+    /* Layout principal da Home */
+    .main .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+
+    /* Títulos e tipografia locais */
+    .main h1, .main h2, .main h3 { color: var(--text); font-weight: 700; }
+    .main [data-testid="stMarkdownContainer"] p { color: var(--text); }
+
+    /* Cards (alinhados ao Hardware) */
+    .list-card, .chat-card{
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        box-shadow: var(--shadow-1);
+    }
+    .list-item{
+        display:flex; align-items:center; justify-content:space-between; gap:12px;
+        padding:10px 8px; border:1px solid var(--border); border-radius:10px; background: var(--panel);
+    }
+    .list-item + .list-item{ margin-top:8px; }
+    .list-left{ display:flex; align-items:center; gap:10px; min-width:0; }
+    .list-ico{ width:28px; height:28px; border-radius:8px; background: var(--primary-weak); border:1px solid #e8eaff; display:flex; align-items:center; justify-content:center; }
+    .list-ico svg{ width:16px; height:16px; color: var(--primary); }
+    .empty{
+        display:flex; align-items:center; gap:10px; padding:10px;
+        border:1px dashed var(--border); border-radius:10px; color: var(--muted); background: var(--panel);
+    }
+
+    /* Cabeçalho do card (ícone + título + subtítulo) */
+    .card-head{
+        display:flex; align-items:center; gap:10px;
+        padding: 8px; border:1px solid var(--border); border-radius:10px; background: var(--panel);
+    }
+    .card-head .list-ico{ width:28px; height:28px; border-radius:8px; background: var(--primary-weak); border:1px solid #e8eaff; display:flex; align-items:center; justify-content:center; }
+    .card-head .list-ico svg{ width:16px; height:16px; color: var(--primary); }
+    .card-head .title{ font-weight:800; color: var(--text); line-height:1; }
+    .card-head .sub{ color: var(--muted); font-size:.9rem; margin-top:2px; }
+    .list-card .inner-gap{ height: 10px; }
+
+    /* Expanders com o mesmo design dos cards */
+    .main .streamlit-expanderHeader{
+        background: var(--panel);
+        border: 2px solid var(--border);
+        border-radius: 12px !important;
+        color: var(--text);
+        font-weight: 700;
+        padding: 16px !important;
+        margin-bottom: 4px !important;
+        transition: all 0.2s ease;
+    }
+    
+    .main .streamlit-expanderHeader:hover{
+        border-color: var(--primary);
+        box-shadow: 0 4px 8px rgba(99, 102, 241, 0.1);
+    }
+    
+    .main .streamlit-expanderContent{
+        background: var(--panel);
+        border: 2px solid var(--border);
+        border-top: none;
+        border-radius: 0 0 12px 12px !important;
+        padding: 16px !important;
+    }
+
+    .main details[open] .streamlit-expanderHeader{
+        border-bottom-left-radius: 0 !important;
+        border-bottom-right-radius: 0 !important;
+        border-bottom: none;
+    }
+
+    /* Botões (consistentes com o resto do app) */
+    .main .stButton > button{
+        background: #fff;
+        border: 2px solid var(--primary);
+        color: var(--primary);
+        font-weight: 600;
+        border-radius: 10px;
+        transition: all .2s ease;
+        box-shadow: none;
+    }
+    .main .stButton > button:hover{
+        background: var(--primary);
+        color: #fff;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(79,70,229,.24);
+    }
+    .main .stButton > button[kind="primary"]{
+        background: var(--primary);
+        color: #fff;
+        border: 2px solid var(--primary);
+    }
+    .main .stButton > button[kind="primary"]:hover{
+        filter: brightness(0.95);
+    }
+
+    /* Botões dentro dos cards: reforça especificidade */
+    .list-card .stButton > button{
+        background: #fff !important;
+        border: 2px solid var(--primary) !important;
+        color: var(--primary) !important;
+        font-weight: 600 !important;
+        border-radius: 10px !important;
+        transition: all .2s ease !important;
+        box-shadow: none !important;
+    }
+    .list-card .stButton > button:hover{
+        background: var(--primary) !important;
+        color: #fff !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(79,70,229,.24) !important;
+    }
+    .list-card .stButton > button[kind="primary"]{
+        background: var(--primary) !important;
+        color: #fff !important;
+        border: 2px solid var(--primary) !important;
+    }
+    .list-card .stButton > button[kind="primary"]:hover{
+        filter: brightness(0.95) !important;
+    }
+
+    /* Inputs/selects (bordas e cores alinhadas aos cards claros) */
+    .main .stSelectbox > div > div,
+    .main .stTextInput > div > div > input,
+    .main .stNumberInput > div > div > input{
+        background: var(--panel);
+        border: 2px solid var(--border);
+        color: var(--text);
+        border-radius: 10px;
+    }
+
+    /* Força o estilo dentro de cards para evitar herança do tema escuro */
+    .list-card .stTextInput > div > div > input,
+    .list-card .stNumberInput > div > div > input{
+        background: var(--panel) !important;
+        border: 2px solid var(--border) !important;
+        color: var(--text) !important;
+        border-radius: 10px !important;
+        height: 40px !important;
+        padding: 0 12px !important;
+    }
+
+    /* Sliders e labels */
+    .main label, .main .stSlider > div > div > div { color: var(--text); }
+
+    /* Mensagens de status com leveza (não conflita com Hardware) */
+    .main .stSuccess{ background: #d1fae5; border:1px solid #10b981; color:#065f46; }
+    .main .stError{ background: #fee2e2; border:1px solid #ef4444; color:#991b1b; }
+    .main .stWarning{ background: #fef3c7; border:1px solid #f59e0b; color:#92400e; }
+    .main .stInfo{ background: #dbeafe; border:1px solid #3b82f6; color:#1e40af; }
+
+    /* Enhanced Model Directory Styles */
+    .model-dir-card {
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        border: 2px solid var(--border);
+        border-radius: 16px;
+        padding: 20px;
+        margin: 12px 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        transition: all 0.3s ease;
+    }
+
+    .model-dir-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+        border-color: var(--primary);
+    }
+
+    .model-dir-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .model-dir-icon {
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 24px;
+        box-shadow: 0 4px 8px rgba(99, 102, 241, 0.3);
+    }
+
+    .model-dir-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .model-dir-title {
+        font-weight: 700;
+        font-size: 1.1rem;
+        color: var(--text);
+        margin-bottom: 4px;
+    }
+
+    .model-dir-path {
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 0.9rem;
+        color: var(--muted);
+        background: rgba(0, 0, 0, 0.05);
+        padding: 4px 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .model-dir-status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+
+    .status-active {
+        background: var(--ok-bg);
+        color: var(--ok-tx);
+        border: 1px solid var(--ok-bd);
+    }
+
+    .status-empty {
+        background: var(--warn-bg);
+        color: var(--warn-tx);
+        border: 1px solid var(--warn-bd);
+    }
+
+    .status-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    /* Enhanced Model Selection Styles */
+    .model-selection-card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 16px;
+    }
+
+    .model-selection-header {
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .model-count-badge {
+        display: inline-block;
+        background: var(--primary);
+        color: white;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    .model-list {
+        max-height: 250px;
+        overflow-y: auto;
+    }
+
+    .model-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+        border-bottom: 1px solid var(--border);
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .model-item:last-child {
+        border-bottom: none;
+    }
+
+    .model-item:hover {
+        background: var(--primary-weak);
+    }
+
+    .model-item-selected {
+        background: var(--primary-weak);
+        border-left: 4px solid var(--primary);
+    }
+
+    .model-icon {
+        width: 40px;
+        height: 40px;
+        background: var(--primary-weak);
+        border: 2px solid var(--primary);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        color: var(--primary);
+    }
+
+    .model-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .model-name {
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--text);
+        margin-bottom: 2px;
+    }
+
+    .model-version {
+        font-size: 0.85rem;
+        color: var(--muted);
+    }
+
+    .model-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .model-size {
+        padding: 4px 8px;
+        background: rgba(0, 0, 0, 0.05);
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--primary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .model-selected-badge {
+        width: 24px;
+        height: 24px;
+        background: var(--primary);
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: bold;
+    }
+
+    .model-selection-empty {
+        padding: 40px 20px;
+        text-align: center;
+        color: var(--muted);
+    }
+
+    .empty-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+
+    .empty-title {
+        font-weight: 600;
+        font-size: 1.1rem;
+        color: var(--text);
+        margin-bottom: 8px;
+    }
+
+    .empty-subtitle {
+        font-size: 0.9rem;
+        color: var(--muted);
+    }
+
+    /* Status indicators */
+    .status-indicator-loaded, .status-indicator-unloaded {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        height: 100%;
+        text-align: center;
+    }
+
+    /* Enhanced button styling for model actions */
+    .list-card .stButton > button {
+        font-weight: 600;
+        border-radius: 10px;
+        transition: all 0.2s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .list-card .stButton > button::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+        transition: left 0.5s;
+    }
+
+    .list-card .stButton > button:hover::before {
+        left: 100%;
+    }
+
+    /* Enhanced reindex button styling */
+    .main .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+        border: none;
+        color: white;
+        font-weight: 700;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        transition: all 0.2s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .main .stButton > button[kind="primary"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+        filter: brightness(1.05);
+    }
+
+    .main .stButton > button[kind="primary"]::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+        transition: left 0.5s;
+    }
+
+    .main .stButton > button[kind="primary"]:hover::before {
+        left: 100%;
+    }
+
+    /* Enhanced text input styling */
+    .main .stTextInput > div > div > input {
+        background: var(--panel);
+        border: 2px solid var(--border);
+        border-radius: 12px;
+        padding: 12px 16px;
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .main .stTextInput > div > div > input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1), 0 2px 8px rgba(0, 0, 0, 0.1);
+        outline: none;
+    }
+
+    .main .stTextInput > div > div > input::placeholder {
+        color: var(--muted);
+        font-style: italic;
+    }
+
+    /* Enhanced selectbox styling */
+    .main .stSelectbox > div > div > div {
+        background: var(--panel);
+        border: 2px solid var(--border);
+        border-radius: 12px;
+        transition: all 0.2s ease;
+    }
+
+    .main .stSelectbox > div > div > div:focus-within {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    /* Improved section titles */
+    .section-title {
+        font-weight: 800;
+        font-size: 1.15rem;
+        color: var(--text);
+        margin: 2px 0 16px;
+        letter-spacing: 0.3px;
+        position: relative;
+        padding-left: 12px;
+    }
+
+    .section-title::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 4px;
+        height: 20px;
+        background: linear-gradient(135deg, var(--primary) 0%, #8b5cf6 100%);
+        border-radius: 2px;
+    }
+
+    /* Enhanced home grid with better spacing */
+    .home-grid {
+        display: grid;
+        grid-template-columns: 1.3fr 1fr;
+        gap: 24px;
+        padding: 0 8px;
+    }
+
+    @media (max-width: 992px) {
+        .home-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* Chat enhanced styling */
+    .chat-card {
+        background: var(--panel);
+        border: 2px solid var(--border);
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+        min-height: 500px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .main .stChatMessage{
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        margin-bottom: 12px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        transition: all 0.2s ease;
+    }
+
+    .main .stChatMessage:hover{
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .chat-card .stTextInput input{
+        background: var(--panel);
+        color: var(--text);
+        border: 2px solid var(--border);
+        border-radius: 999px;
+        height: 48px;
+        padding: 0 20px;
+        font-size: 1rem;
+        transition: all 0.2s ease;
+    }
+
+    .chat-card .stTextInput input:focus{
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    .chat-card .stTextInput input::placeholder{ 
+        color: var(--muted); 
+    }
+
+    .chat-actions{ 
+        display: flex; 
+        justify-content: flex-end; 
+        margin-top: 12px; 
+    }
+
+    .chat-actions .stButton>button{ 
+        border-radius: 24px; 
+        padding: 8px 16px; 
+        font-weight: 700;
+        transition: all 0.2s ease;
+    }
+
+    /* Divisores */
+    .main hr { border-color: var(--border); border-width:1px; opacity:1; }
+    """
+
+
+def load_home_styles():
+    st.markdown(f"<style>{get_home_styles()}</style>", unsafe_allow_html=True)
