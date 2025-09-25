@@ -45,7 +45,7 @@ def create_sidebar_navigation() -> str:
         )
 
     # Navigation menu
-    menu_options = {"Home": "Home", "Hardware": "Hardware", "Training": "Training"}
+    menu_options = {"Home": "Home", "Hardware": "Hardware", "Recommendations": "Recommendations", "Dry Run": "Dry Run", "Training": "Training"}
 
     for display_name, page_name in menu_options.items():
         if st.sidebar.button(
