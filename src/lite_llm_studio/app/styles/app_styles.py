@@ -33,18 +33,18 @@ def get_global_styles() -> str:
         --topbar-h: 64px;
         --footer-h: 52px;
 
-        --bg: #f3f4f6;
-        --panel: #ffffff;
-        --text: #111827;
-        --muted: #6b7280;
-        --border: #e5e7eb;
+        --bg: #0b1220;
+        --panel: #0f172a;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --border: #1f2937;
 
         --primary: #6366f1;
         --primary-weak: #eef2ff;
 
         --radius: 12px;
-        --shadow-1: 0 1px 3px rgba(0,0,0,.10);
-        --shadow-2: 0 4px 12px rgba(0,0,0,.12);
+        --shadow-1: 0 1px 3px rgba(0,0,0,.40);
+        --shadow-2: 0 6px 18px rgba(0,0,0,.45);
 
         --font-sans:
             ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -197,21 +197,22 @@ def get_global_styles() -> str:
     }
     
     h2, h3 {
-        color: #374151;
+        color: #cbd5e1;
         font-weight: 700;
     }
 
     .stTabs [data-baseweb="tab-list"] {
         gap: 0;
-        background: #f9fafb;
+        background: #0b1220;
         border-radius: 8px;
         padding: .25rem;
         margin-bottom: 2rem;
+        border: 1px solid var(--border);
     }
     
     .stTabs [data-baseweb="tab"] {
         border-radius: 6px;
-        color: #6b7280;
+        color: #94a3b8;
         font-weight: 500;
     }
     
@@ -391,8 +392,8 @@ def get_global_styles() -> str:
         font-size: .8rem;
         border-radius: 999px;
         border: 1px solid var(--border);
-        color: #374151;
-        background: #f9fafb;
+        color: #cbd5e1;
+        background: #0b1220;
         font-weight: 600;
     }
     
@@ -436,7 +437,7 @@ def get_global_styles() -> str:
     
     .disk-bar {
         height: 10px;
-        background: #eef2f7;
+        background: #1f2937;
         border-radius: 999px;
         overflow: hidden;
     }
@@ -529,7 +530,7 @@ def get_global_styles() -> str:
     .gpu-vrambar {
         width: 140px;
         height: 8px;
-        background: #eef2f7;
+        background: #1f2937;
         border-radius: 999px;
         overflow: hidden;
     }
@@ -542,7 +543,7 @@ def get_global_styles() -> str:
     
     .gpu-vramtxt {
         font-size: .75rem;
-        color: #6b7280;
+        color: #9ca3af;
     }
 
     .syscpu-card {
@@ -626,7 +627,7 @@ def get_global_styles() -> str:
         padding: 8px 10px;
         border: 1px solid var(--border);
         border-radius: 10px;
-        background: #f9fafb;
+        background: #0b1220;
     }
     
     .spec-label {
@@ -734,7 +735,7 @@ def get_global_styles() -> str:
 
     .storage-bar {
         height: 12px;
-        background: #eef2f7;
+        background: #1f2937;
         border-radius: 999px;
         overflow: hidden;
         position: relative;
