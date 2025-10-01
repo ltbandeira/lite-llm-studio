@@ -34,6 +34,13 @@ dev = [
   "types-PyYAML==6.0.12.20250822",
 ]
 
+# Optional dependencies for enhanced document processing
+data = [
+  "docling>=1.0.0",
+  "PyPDF2>=3.0.0",
+  "python-docx>=0.8.11",
+]
+
 [tool.setuptools]
 package-dir = { "" = "src" }
 include-package-data = true
