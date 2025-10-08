@@ -60,6 +60,33 @@ def create_sidebar_navigation() -> str:
     return st.session_state.current_page
 
 
+def create_pipeline_navigation(stages, completed_stages=None):
+    if completed_stages is None:
+        completed_stages = set()
+    st.markdown("<div class='nav-caption'>Pipeline</div>", unsafe_allow_html=True)
+    current_stage = st.session_state.get("current_stage", stages[0])
+    stage_idx = stages.index(current_stage)
+    for idx, stage in enumerate(stages):
+        is_completed = stage in completed_stages
+        is_current = idx == stage_idx
+        disabled = idx > stage_idx
+        btn_label = f"{idx+1}. {stage}"
+        btn_type = "primary" if is_current else ("secondary" if not is_completed else "success")
+        if st.sidebar.button(
+            btn_label,
+            key=f"pipeline_{stage}",
+            use_container_width=True,
+            type=btn_type,
+            disabled=disabled,
+        ):
+            st.session_state.current_stage = stage
+            st.session_state.current_page = stage
+            st.rerun()
+    # Visual indicator
+    st.markdown(f"<div style='margin-top:1rem; color:#aaa;'>Etapa atual: <b>{current_stage}</b></div>", unsafe_allow_html=True)
+    return st.session_state.get("current_stage", stages[0])
+
+
 def render_top_bar(title: str):
     st.markdown(
         f"""
