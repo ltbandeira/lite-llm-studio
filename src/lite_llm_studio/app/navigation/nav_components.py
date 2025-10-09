@@ -5,17 +5,20 @@ Module app.navigation.nav_components
 This module contains navigation-related components and utilities.
 """
 
+import logging
 from datetime import datetime
+from importlib import resources
 
 import streamlit as st
+
+# Get logger for navigation
+logger = logging.getLogger("app.navigation")
 
 
 def load_sidebar_logo_b64() -> str:
     import base64
 
     try:
-        from importlib import resources
-
         with resources.files("lite_llm_studio.app.resources").joinpath("lateral_bar_icon.png").open("rb") as f:
             return base64.b64encode(f.read()).decode()
     except Exception:
@@ -23,9 +26,12 @@ def load_sidebar_logo_b64() -> str:
 
 
 def create_sidebar_navigation() -> str:
+    logger.debug("Creating sidebar navigation")
+
     # Load logo
     b64 = load_sidebar_logo_b64()
     if b64:
+        logger.debug("Logo loaded successfully")
         st.markdown(
             f"""
             <div class="sidebar-logo">
@@ -35,14 +41,7 @@ def create_sidebar_navigation() -> str:
             unsafe_allow_html=True,
         )
     else:
-        st.markdown(
-            """
-            <div class="sidebar-logo">
-                <div style="font-size: 2.5rem; margin-bottom: .5rem; color: #ffffff;">LS</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        logger.debug("Logo not found")
 
     # Navigation menu
     menu_options = {"Home": "Home", "Hardware": "Hardware", "Training": "Training"}
@@ -54,6 +53,7 @@ def create_sidebar_navigation() -> str:
             use_container_width=True,
             type="primary" if st.session_state.current_page == page_name else "secondary",
         ):
+            logger.info(f"Navigation: User clicked '{page_name}' page")
             st.session_state.current_page = page_name
             st.rerun()
 
@@ -61,13 +61,12 @@ def create_sidebar_navigation() -> str:
 
 
 def render_top_bar(title: str):
+    logger.debug(f"Rendering top bar with title: {title}")
     st.markdown(
         f"""
         <div class="app-topbar">
             <div class="title">{title}</div>
-            <div class="actions">
-                <!-- Actions can be added here if needed -->
-            </div>
+            <div class="actions"></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -75,6 +74,7 @@ def render_top_bar(title: str):
 
 
 def render_bottom_bar():
+    logger.debug("Rendering bottom bar")
     year = datetime.now().year
     st.markdown(
         f"""

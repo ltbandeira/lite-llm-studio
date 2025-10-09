@@ -9,6 +9,12 @@ import streamlit as st
 
 
 def get_google_fonts() -> str:
+    """
+    Return the HTML snippet to load Google Fonts used by the app.
+
+    Returns:
+        str: HTML <link> tags for Google Fonts.
+    """
     return """
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,6 +23,15 @@ def get_google_fonts() -> str:
 
 
 def get_global_styles() -> str:
+    """
+    Return the global CSS stylesheet used across the app.
+
+    The stylesheet customizes Streamlit layout (sidebar/topbar/footer),
+    typography, colors, and multiple UI components (cards, tabs, KPI tiles, etc).
+
+    Returns:
+        str: A <style>...</style> block containing the app-wide CSS.
+    """
     return """
     <style>
     /* ===== Hide native components ===== */
@@ -27,24 +42,25 @@ def get_global_styles() -> str:
         display: none !important;
     }
 
+
     /* ===== Design tokens ===== */
     :root {
         --sidebar-w: 208px;
         --topbar-h: 64px;
         --footer-h: 52px;
 
-        --bg: #f3f4f6;
-        --panel: #ffffff;
-        --text: #111827;
-        --muted: #6b7280;
-        --border: #e5e7eb;
+        --bg: #0b1220;
+        --panel: #0f172a;
+        --text: #e5e7eb;
+        --muted: #94a3b8;
+        --border: #1f2937;
 
         --primary: #6366f1;
         --primary-weak: #eef2ff;
 
         --radius: 12px;
-        --shadow-1: 0 1px 3px rgba(0,0,0,.10);
-        --shadow-2: 0 4px 12px rgba(0,0,0,.12);
+        --shadow-1: 0 1px 3px rgba(0,0,0,.40);
+        --shadow-2: 0 6px 18px rgba(0,0,0,.45);
 
         --font-sans:
             ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
@@ -55,12 +71,14 @@ def get_global_styles() -> str:
         --bad-bg:#fef2f2; --bad-bd:#fecaca; --bad-tx:#991b1b;
     }
 
+
     /* ===== Base ===== */
     .stApp {
         color: var(--text);
         background-color: var(--bg);
         font-family: var(--font-sans);
     }
+
 
     /* ===== Sidebar ===== */
     section[data-testid="stSidebar"] {
@@ -76,6 +94,7 @@ def get_global_styles() -> str:
         flex-direction: column;
     }
 
+
     /* ===== Sidebar Logo ===== */
     .sidebar-logo {
         text-align: center;
@@ -90,6 +109,7 @@ def get_global_styles() -> str:
         border-radius: 8px;
         object-fit: contain;
     }
+
 
     /* ===== Sidebar Menu ===== */
     .nav-caption {
@@ -143,6 +163,7 @@ def get_global_styles() -> str:
         border-radius:999px;
     }
 
+
     /* ===== Topbar ===== */
     .app-topbar {
         position: fixed;
@@ -182,11 +203,13 @@ def get_global_styles() -> str:
         outline: none;
     }
 
+
     /* ===== Main Content ===== */
     .main .block-container {
         padding: calc(var(--topbar-h) + 16px) clamp(1.5rem, 2vw, 3rem) calc(var(--footer-h) + 28px);
         max-width: clamp(960px, 90vw, 1400px);
     }
+
 
     /* ===== Cards Hardware ===== */
     h1 {
@@ -197,7 +220,7 @@ def get_global_styles() -> str:
     }
     
     h2, h3 {
-        color: #374151;
+        color: #cbd5e1;
         font-weight: 700;
     }
 
@@ -207,11 +230,12 @@ def get_global_styles() -> str:
         border-radius: 8px;
         padding: .25rem;
         margin-bottom: 2rem;
+        border: 1px solid var(--border);
     }
     
     .stTabs [data-baseweb="tab"] {
         border-radius: 6px;
-        color: #6b7280;
+        color: #94a3b8;
         font-weight: 500;
     }
     
@@ -220,7 +244,8 @@ def get_global_styles() -> str:
         color: var(--text);
         box-shadow: var(--shadow-1);
     }
-    
+
+
     /* ===== KPI Cards ===== */
     .kpi-grid {
         display: grid;
@@ -306,6 +331,7 @@ def get_global_styles() -> str:
         white-space: nowrap;
     }
 
+
     /* ===== Footer ===== */
     .app-footer {
         position: fixed;
@@ -341,6 +367,7 @@ def get_global_styles() -> str:
         text-decoration:underline;
         outline:none;
     }
+
 
     /* ====== Hardware page styles ====== */
     .section {
@@ -391,8 +418,8 @@ def get_global_styles() -> str:
         font-size: .8rem;
         border-radius: 999px;
         border: 1px solid var(--border);
-        color: #374151;
-        background: #f9fafb;
+        color: #cbd5e1;
+        background: #0b1220;
         font-weight: 600;
     }
     
@@ -436,7 +463,7 @@ def get_global_styles() -> str:
     
     .disk-bar {
         height: 10px;
-        background: #eef2f7;
+        background: #1f2937;
         border-radius: 999px;
         overflow: hidden;
     }
@@ -529,7 +556,7 @@ def get_global_styles() -> str:
     .gpu-vrambar {
         width: 140px;
         height: 8px;
-        background: #eef2f7;
+        background: #1f2937;
         border-radius: 999px;
         overflow: hidden;
     }
@@ -542,7 +569,7 @@ def get_global_styles() -> str:
     
     .gpu-vramtxt {
         font-size: .75rem;
-        color: #6b7280;
+        color: #9ca3af;
     }
 
     .syscpu-card {
@@ -626,7 +653,7 @@ def get_global_styles() -> str:
         padding: 8px 10px;
         border: 1px solid var(--border);
         border-radius: 10px;
-        background: #f9fafb;
+        background: #0b1220;
     }
     
     .spec-label {
@@ -734,7 +761,7 @@ def get_global_styles() -> str:
 
     .storage-bar {
         height: 12px;
-        background: #eef2f7;
+        background: #1f2937;
         border-radius: 999px;
         overflow: hidden;
         position: relative;
@@ -755,10 +782,72 @@ def get_global_styles() -> str:
     .storage-bar.bad  > span {
         background: linear-gradient(90deg, #ef4444, #f87171);
     }
+    
+    
+    /* ===== Models Directory ===== */
+    .dir-summary-grid .kpi-card { min-height: 112px; }
+
+    .kpi-value.mono {
+        font-size: .95rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .form-hint {
+        display: inline-block;
+        margin-top: 6px;
+        font-size: .85rem;
+        color: var(--muted);
+    }
+    .form-hint.ok { color: var(--ok-tx); }
+    .form-hint.bad { color: var(--bad-tx); }
     </style>
     """
 
 
 def load_fonts_and_styles():
+    """
+    Inject Google Fonts and the app-wide CSS into the Streamlit page.
+    """
     st.markdown(get_google_fonts(), unsafe_allow_html=True)
     st.markdown(get_global_styles(), unsafe_allow_html=True)
+    st.markdown(get_home_styles(), unsafe_allow_html=True)
+
+
+def get_home_styles() -> str:
+    """
+    Return additional CSS overrides for the Home page.
+
+    Returns:
+        str: A (possibly empty) <style>...</style> block.
+    """
+    return """
+    <style>
+      .chat-scroll {
+        max-height: min(60vh, 540px);
+        overflow-y: auto;
+        padding: 8px 6px 0 6px;
+      }
+
+      div[data-testid="stChatInput"] {
+        background: var(--background-color);
+        border-top: 1px solid color-mix(in oklab, var(--text-color) 10%, transparent);
+      }
+
+      div[data-testid="stChatInput"] textarea,
+      div[data-testid="stChatInput"] [contenteditable="true"] {
+        background: var(--background-color) !important;
+        color: var(--text-color) !important;
+        border: 1px solid color-mix(in oklab, var(--text-color) 14%, transparent);
+        border-radius: 12px;
+      }
+
+      div[data-testid="stChatInput"] { 
+        padding-top: 8px;
+        padding-bottom: 8px;
+        position: sticky; bottom: 0;
+        z-index: 2;
+      }
+    </style>
+    """
