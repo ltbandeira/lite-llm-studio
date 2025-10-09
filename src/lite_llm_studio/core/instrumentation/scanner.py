@@ -397,3 +397,25 @@ class HardwareScanner:
             disks.append(DiskInfoModel(name="Unknown", total_space=0.0, used_space=0.0, free_space=0.0))
 
         return disks
+
+    def check_cuda_support(self) -> bool:
+        """
+        Check if CUDA support is available in llama-cpp-python.
+
+        Returns:
+            bool: True if CUDA GPU offload is supported, False otherwise.
+        """
+        try:
+            import llama_cpp.llama_cpp as llama_low
+
+            if hasattr(llama_low, "llama_supports_gpu_offload"):
+                return llama_low.llama_supports_gpu_offload()
+            else:
+                self.logger.warning("llama_supports_gpu_offload function not found")
+                return False
+        except ImportError:
+            self.logger.warning("llama-cpp-python not available")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error checking CUDA support: {e}")
+            return False
