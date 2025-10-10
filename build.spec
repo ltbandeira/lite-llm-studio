@@ -77,7 +77,7 @@ excludes = [
 block_cipher = None
 
 a = Analysis(
-    ['desktop_app.py'],
+    ['main.py'],
     pathex=[str(project_root)],
     binaries=[],
     datas=datas,

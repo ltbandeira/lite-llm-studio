@@ -397,3 +397,49 @@ class HardwareScanner:
             disks.append(DiskInfoModel(name="Unknown", total_space=0.0, used_space=0.0, free_space=0.0))
 
         return disks
+
+    def check_cuda_support(self) -> bool:
+        """
+        Check if CUDA support is available in llama-cpp-python.
+
+        Returns:
+            bool: True if CUDA GPU offload is supported, False otherwise.
+        """
+        try:
+            import llama_cpp.llama_cpp as llama_low
+
+            if hasattr(llama_low, "llama_supports_gpu_offload"):
+                return llama_low.llama_supports_gpu_offload()
+            else:
+                self.logger.warning("llama_supports_gpu_offload function not found")
+                return False
+        except ImportError:
+            self.logger.warning("llama-cpp-python not available")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error checking CUDA support: {e}")
+            return False
+
+    def get_gpu_runtime_info(self) -> dict:
+        """
+        Get basic GPU information for model inference.
+
+        Returns:
+            dict: Basic GPU information including name.
+        """
+        try:
+            # Try to get GPU info from nvidia-smi (name only)
+            result = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5)
+
+            if result.returncode == 0 and result.stdout.strip():
+                lines = result.stdout.strip().split("\n")
+                gpu_info = {}
+                for i, line in enumerate(lines):
+                    name = line.strip()
+                    if name:
+                        gpu_info[f"gpu_{i}"] = {"name": name}
+                return gpu_info
+        except Exception as e:
+            self.logger.debug(f"Could not get GPU runtime info: {e}")
+
+        return {}

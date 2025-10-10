@@ -16,7 +16,6 @@ class OSInfoModel(BaseConfigModel):
     """
     Model representing the operating system information.
     """
-
     system: StrictStr = Field(..., description="Operating system name")
     version: StrictStr = Field(..., description="Operating system version")
 
@@ -31,7 +30,6 @@ class CPUInfoModel(BaseConfigModel):
     """
     Model representing the CPU information.
     """
-
     brand: StrictStr = Field(..., description="CPU brand name")
     arch: StrictStr = Field(..., description="CPU architecture")
     cores: PositiveInt = Field(..., description="Number of CPU cores")
@@ -49,7 +47,6 @@ class GPUInfoModel(BaseConfigModel):
     """
     Model representing the GPU information.
     """
-
     name: StrictStr = Field(..., description="GPU name")
     total_vram: Annotated[int | float, Field(..., gt=0, description="Total GPU memory in GB")]
     driver: str | None = Field(..., description="GPU driver version")
@@ -66,7 +63,6 @@ class MemoryInfoModel(BaseConfigModel):
     """
     Model representing the memory information.
     """
-
     total_memory: Annotated[int | float, Field(..., gt=0, description="Total memory in GB")]
     used_memory: Annotated[int | float, Field(..., gt=0, description="Used memory in GB")]
     free_memory: Annotated[int | float, Field(..., gt=0, description="Free memory in GB")]
@@ -82,7 +78,6 @@ class DiskInfoModel(BaseConfigModel):
     """
     Model representing the disk information.
     """
-
     name: StrictStr = Field(..., description="Disk name")
     total_space: Annotated[int | float, Field(..., gt=0, description="Total disk space in GB")]
     used_space: Annotated[int | float, Field(..., gt=0, description="Used disk space in GB")]
@@ -99,7 +94,6 @@ class HardwareScanReportModel(BaseConfigModel):
     """
     Model representing the hardware scan report.
     """
-
     os: OSInfoModel = Field(..., description="Operating system information")
     cpu: CPUInfoModel = Field(..., description="CPU information")
     gpus: list[GPUInfoModel] = Field(default_factory=list)

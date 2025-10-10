@@ -5,9 +5,13 @@ Module app.components.ui_components
 This module contains functions to generate HTML for various UI components.
 """
 
-from typing import Any
+import logging
+from typing import Any, Optional
 
 from ..icons import ICONS
+
+# Get logger for UI components
+logger = logging.getLogger("app.components")
 
 
 def format_gb(value: Any) -> str:
@@ -23,6 +27,7 @@ def format_gb(value: Any) -> str:
 
 
 def create_kpi_cards_html(os_info: dict[str, Any], cpu_info: dict[str, Any], mem_info: dict[str, Any], gpus: list[dict[str, Any]]) -> str:
+    logger.debug("Creating KPI cards HTML")
     total_mem = float(mem_info.get("total_memory") or 0)
     free_mem = float(mem_info.get("free_memory") or 0)
     mem_used_pct = ((total_mem - free_mem) / total_mem * 100) if total_mem else None
@@ -70,6 +75,7 @@ def create_kpi_cards_html(os_info: dict[str, Any], cpu_info: dict[str, Any], mem
 
 
 def create_system_cpu_card_html(os_info: dict[str, Any], cpu_info: dict[str, Any]) -> str:
+    logger.debug("Creating system/CPU card HTML")
     return f"""
     <div class="syscpu-card">
     <div class="syscpu-header">
@@ -119,6 +125,7 @@ def _get_gpu_brand_class(gpu_name: str) -> str:
 
 
 def create_gpu_cards_html(gpus: list[dict[str, Any]]) -> str:
+    logger.debug(f"Creating GPU cards HTML for {len(gpus)} GPU(s)")
     if not gpus:
         return ""
 
@@ -174,6 +181,7 @@ def create_gpu_cards_html(gpus: list[dict[str, Any]]) -> str:
 
 
 def create_storage_card_html(disks: list[dict[str, Any]]) -> str:
+    logger.debug(f"Creating storage card HTML for {len(disks)} disk(s)")
     if not disks:
         return ""
 
@@ -231,3 +239,55 @@ def create_storage_card_html(disks: list[dict[str, Any]]) -> str:
 
     html += "  </div></div>"
     return html
+
+
+
+def create_directory_cards_html(
+    dir_path: str,
+    model_count: int,
+    last_indexed: Optional[str] = None,
+    path_exists: Optional[bool] = None,
+) -> str:
+    logger.debug(f"Creating directory cards HTML for path: {dir_path}")
+    path_text = dir_path if dir_path else "Models directory"
+    help_text = "Automatically managed models directory"
+
+    if model_count > 0 and (path_exists is True):
+        chip_cls = "ok"
+        chip_text = "Ready"
+        sub_text = f"Last indexed: {last_indexed}" if last_indexed else "Models ready to use"
+    elif path_exists is False:
+        chip_cls = "warn"
+        chip_text = "Creating..."
+        sub_text = "Directory will be created automatically"
+    else:
+        chip_cls = "warn"
+        chip_text = "Empty"
+        sub_text = "Train a new model and click 'Index Models'"
+
+    # Truncate very long paths for display
+    display_path = path_text
+    if len(display_path) > 60:
+        display_path = "..." + display_path[-57:]
+
+    return f"""
+    <div class="kpi-grid dir-summary-grid">
+      <div class="kpi-card">
+        <div class="kpi-icon">{ICONS['folder']}</div>
+        <div class="kpi-body">
+          <div class="kpi-label">Models Directory</div>
+          <div class="kpi-value mono" title="{path_text}">{display_path}</div>
+          <div class="kpi-help">{help_text}</div>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-icon">{ICONS['model']}</div>
+        <div class="kpi-body">
+          <div class="kpi-label">Status</div>
+          <div class="kpi-value">{model_count} indexed <span class="chip {chip_cls} sm">{chip_text}</span></div>
+          <div class="kpi-help">{sub_text}</div>
+        </div>
+      </div>
+    </div>
+    """

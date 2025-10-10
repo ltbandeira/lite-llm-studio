@@ -1,10 +1,3 @@
-"""
-Module lite_llm_studio.core
-----------------------------
-
-This module contains core functionality for the LiteLLM Studio project.
-"""
-
 from .configuration import (
     BaseConfigModel,
     CPUInfoModel,
