@@ -15,7 +15,13 @@ from typing import Any
 
 import streamlit as st
 
-from lite_llm_studio.app.modules import render_hardware_page, render_home_page, render_training_page
+from lite_llm_studio.app.modules import (
+    render_hardware_page,
+    render_home_page,
+    render_training_page,
+    render_recommendations_page,
+    render_dry_run_page,
+)
 from lite_llm_studio.app.navigation import create_sidebar_navigation, render_bottom_bar, render_top_bar
 
 # Import modular components
@@ -99,6 +105,8 @@ def run_hardware_scan() -> dict[str, Any]:
 PAGE_TITLES: dict[str, str] = {
     "Home": "LiteLLM Studio",
     "Hardware": "Hardware Overview",
+    "Recommendations": "Model Recommendations",
+    "Dry Run": "Dry Run",
     "Training": "Model Training",
 }
 
@@ -154,6 +162,15 @@ def main() -> None:
     except Exception as e:
         logger.error(f"Error rendering page {selected_page}: {e}", exc_info=True)
         st.error("An error occurred while loading the page. Please try again.")
+
+    elif selected_page == "Recommendations":
+        # Reuse hardware scan used by Hardware page
+        with st.spinner("Analisando hardware…"):
+            hardware_data = run_hardware_scan()
+        render_recommendations_page(hardware_data)
+
+    elif selected_page == "Dry Run":
+        render_dry_run_page()
 
     # Render bottom bar
     render_bottom_bar()

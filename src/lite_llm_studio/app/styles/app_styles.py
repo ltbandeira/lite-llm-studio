@@ -226,7 +226,7 @@ def get_global_styles() -> str:
 
     .stTabs [data-baseweb="tab-list"] {
         gap: 0;
-        background: #f9fafb;
+        background: #0b1220;
         border-radius: 8px;
         padding: .25rem;
         margin-bottom: 2rem;
