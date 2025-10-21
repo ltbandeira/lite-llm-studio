@@ -20,6 +20,8 @@ dependencies = [
   "PyYAML>=6.0",
   "streamlit>=1.49.1",
   "pyinstaller==6.15.0",
+  "docling>=2.0.0",
+  "ftfy>=6.0",
 ]
 
 # Development-only dependencies

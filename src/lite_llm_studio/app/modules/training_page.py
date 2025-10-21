@@ -12,6 +12,9 @@ from typing import Any
 
 import streamlit as st
 
+from lite_llm_studio.core.configuration.data_schema import ChunkingStrategy, DataProcessingConfig
+from lite_llm_studio.core.configuration.desktop_app_config import get_user_data_directory
+
 from ..icons import ICONS
 
 # Get logger for training page
@@ -91,10 +94,10 @@ class ModelRecommendationStep(PipelineStep):
 
 
 class DataPreparationStep(PipelineStep):
-    """ """
+    """Data preparation step with PDF upload and processing."""
 
     def render_ui(self) -> None:
-        """ """
+        """Render UI for data preparation step."""
         st.markdown(
             f"""
             <div class="kpi-grid">
@@ -111,18 +114,274 @@ class DataPreparationStep(PipelineStep):
             unsafe_allow_html=True,
         )
 
-        # TODO: Implement data preparation UI
+        st.markdown("---")
+
+        # File upload section
+        st.markdown("#### Upload Documents")
+
+        uploaded_files = st.file_uploader(
+            "Choose PDF files",
+            type=["pdf"],
+            accept_multiple_files=True,
+            help="Select one or more PDF files with domain-specific content",
+            key="dp_pdf_uploader",
+        )
+
+        if uploaded_files:
+            # Display uploaded files
+            with st.expander("View uploaded files", expanded=False):
+                for idx, file in enumerate(uploaded_files, 1):
+                    file_size_mb = file.size / (1024 * 1024)
+                    st.write(f"{idx}. **{file.name}** ({file_size_mb:.2f} MB)")
+
+        # Processing configuration
+        st.markdown("#### Processing Configuration")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            # Create capitalized display names for chunking strategies
+            strategy_options = {
+                "hybrid": "Hybrid (Recommended)",
+                "hierarchical": "Hierarchical",
+                "paragraph": "Paragraph",
+                "fixed_size": "Fixed Size",
+            }
+
+            chunking_strategy_display = st.selectbox(
+                "Chunking Strategy",
+                options=list(strategy_options.values()),
+                index=0,  # Default to "Hybrid"
+                help="Hybrid: Advanced tokenization-aware chunking that preserves document structure and respects token limits.Best for fine-tuning.",
+                key="dp_chunking_strategy_display",
+            )
+
+            # Convert back to enum value
+            chunking_strategy = [k for k, v in strategy_options.items() if v == chunking_strategy_display][0]
+
+        with col2:
+            # Add vertical spacing to align with the selectbox
+            st.markdown('<div style="height: 34px;"></div>', unsafe_allow_html=True)
+            ocr_enabled = st.checkbox("Enable OCR", value=True, help="Enable OCR for scanned documents", key="dp_ocr_enabled")
+
+        # Advanced options
+        with st.expander("Advanced Options", expanded=False):
+            st.markdown("**Tokenization Settings**")
+
+            col_adv1, col_adv2 = st.columns(2)
+
+            with col_adv1:
+                max_tokens = st.slider(
+                    "Max Tokens per Chunk",
+                    min_value=64,
+                    max_value=2048,
+                    value=512,
+                    step=64,
+                    help="Maximum tokens per chunk (for Hybrid/Hierarchical strategies)",
+                    key="dp_max_tokens",
+                )
+
+            with col_adv2:
+                merge_peers = st.checkbox(
+                    "Merge Small Chunks",
+                    value=True,
+                    help="Merge undersized chunks with same headings (Hybrid strategy only)",
+                    key="dp_merge_peers",
+                )
+
+            st.markdown("**Legacy Chunking Parameters** (for Paragraph/Fixed Size strategies)")
+
+            col_leg1, col_leg2 = st.columns(2)
+
+            with col_leg1:
+                chunk_size = st.slider(
+                    "Chunk Size (words)",
+                    min_value=128,
+                    max_value=4096,
+                    value=512,
+                    step=128,
+                    help="Size of chunks in words (Fixed Size strategy only)",
+                    key="dp_chunk_size",
+                )
+
+            with col_leg2:
+                chunk_overlap = st.slider(
+                    "Chunk Overlap (words)",
+                    min_value=0,
+                    max_value=512,
+                    value=50,
+                    step=10,
+                    help="Overlap between chunks in words (Fixed Size strategy only)",
+                    key="dp_chunk_overlap",
+                )
+
+            st.markdown("**Document Processing**")
+            extract_tables = st.checkbox("Extract Tables", value=True, help="Extract and format tables from documents", key="dp_extract_tables")
+
+        dataset_name = st.text_input(
+            "Dataset Name",
+            help="Name for the generated dataset",
+            key="dp_dataset_name",
+        )
+
+        dataset_description = st.text_area(
+            "Dataset Description (optional)",
+            value="",
+            help="Optional description of the dataset",
+            key="dp_dataset_description",
+            height=100,
+        )
+
+        # Store configuration in session state
+        if uploaded_files:
+            st.session_state.dp_uploaded_files = uploaded_files
+            st.session_state.dp_config = {
+                "chunking_strategy": chunking_strategy,
+                "extract_tables": extract_tables,
+                "ocr_enabled": ocr_enabled,
+                "chunk_size": chunk_size,
+                "chunk_overlap": chunk_overlap,
+                "max_tokens": max_tokens,
+                "merge_peers": merge_peers,
+                "dataset_name": dataset_name,
+                "dataset_description": dataset_description,
+            }
+
+        # Create a placeholder container for processing status
+        # This reserves space and prevents UI misalignment during processing
+        st.markdown("---")
+        st.session_state.dp_status_container = st.empty()
 
     def execute(self, context: dict[str, Any]) -> dict[str, Any]:
-        """ """
-        # TODO: Implement backend logic for data preparation
+        """Execute backend logic for data preparation."""
         self.logger.info("Executing data preparation step")
-        return {}
+
+        try:
+            # Get uploaded files from session state
+            uploaded_files = st.session_state.get("dp_uploaded_files", [])
+            config = st.session_state.get("dp_config", {})
+
+            if not uploaded_files:
+                raise ValueError("No files uploaded")
+
+            # Create processing directory and save uploaded files directly there
+            user_data_dir = get_user_data_directory()
+            processed_dir = user_data_dir / "processed_documents"
+            processed_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save uploaded files directly in processed_documents directory
+            saved_files: list[str] = []
+            for file in uploaded_files:
+                file_path = processed_dir / file.name
+                with open(file_path, "wb") as f:
+                    f.write(file.getbuffer())
+                saved_files.append(str(file_path))
+                self.logger.info(f"Saved uploaded file: {file.name}")
+
+            # Format is always JSONL for causal language modeling
+            processing_config = DataProcessingConfig(
+                input_files=saved_files,
+                output_dir=str(processed_dir),
+                extract_tables=config.get("extract_tables", True),
+                ocr_enabled=config.get("ocr_enabled", True),
+                chunking_strategy=ChunkingStrategy(config.get("chunking_strategy", "hybrid")),
+                chunk_size=config.get("chunk_size", 512),
+                chunk_overlap=config.get("chunk_overlap", 50),
+                max_tokens=config.get("max_tokens", 512),
+                merge_peers=config.get("merge_peers", True),
+            )
+
+            # Get orchestrator and process documents
+            from lite_llm_studio.app.app import get_orchestrator
+
+            orchestrator = get_orchestrator()
+
+            # Use status container if available, otherwise fallback to spinner
+            status_container = st.session_state.get("dp_status_container")
+
+            if status_container:
+                # Clear the container and show processing status
+                status_container.empty()
+
+                # Step 1: Process documents
+                with status_container.container():
+                    st.info("Processing documents...")
+                    job_result = orchestrator.execute_document_processing(processing_config)
+
+                # Update to show success
+                status_container.empty()
+                with status_container.container():
+                    st.success("Documents processed!")
+            else:
+                with st.spinner("Processing documents..."):
+                    job_result = orchestrator.execute_document_processing(processing_config)
+
+            if not job_result:
+                raise Exception("Document processing failed")
+
+            # Collect chunk files
+            chunks_files: list[str] = []
+            for doc in job_result.get("processed_documents", []):
+                chunks_file = doc.get("metadata", {}).get("chunks_file")
+                if chunks_file:
+                    chunks_files.append(chunks_file)
+
+            if not chunks_files:
+                raise Exception("No chunks were generated from the documents")
+
+            # Create dataset
+            datasets_dir = user_data_dir / "datasets"
+            datasets_dir.mkdir(parents=True, exist_ok=True)
+
+            dataset_name = config.get("dataset_name", "my_training_dataset")
+            dataset_description = config.get("dataset_description", "")
+
+            if status_container:
+                # Step 2: Create dataset
+                status_container.empty()
+                with status_container.container():
+                    st.info("Creating dataset...")
+                    dataset_result = orchestrator.create_dataset(chunks_files, str(datasets_dir), dataset_name, dataset_description)
+
+                # Update to show final success
+                status_container.empty()
+                with status_container.container():
+                    st.success("Dataset created successfully!")
+            else:
+                with st.spinner("Creating dataset..."):
+                    dataset_result = orchestrator.create_dataset(chunks_files, str(datasets_dir), dataset_name, dataset_description)
+
+            if not dataset_result:
+                raise Exception("Dataset creation failed")
+
+            # Store results in context
+            result = {
+                "processing_job": job_result,
+                "dataset_config": dataset_result,
+                "chunks_files": chunks_files,
+            }
+
+            self.logger.info("Data preparation completed successfully")
+            self.logger.info(f"Dataset created: {dataset_name}")
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Data preparation failed: {e}", exc_info=True)
+            raise
 
     def validate(self, context: dict[str, Any]) -> tuple[bool, str]:
-        """ """
-        # TODO: Add proper validation logic
-        return True, "True"
+        """Validate if this step can be executed."""
+        uploaded_files = st.session_state.get("dp_uploaded_files", [])
+
+        if not uploaded_files:
+            return False, "Please upload at least one PDF file"
+
+        dataset_name = st.session_state.get("dp_config", {}).get("dataset_name", "").strip()
+        if not dataset_name:
+            return False, "Please provide a dataset name"
+
+        return True, "Ready to process documents"
 
 
 class DryRunStep(PipelineStep):
@@ -211,7 +470,7 @@ PIPELINE_REGISTRY: list[tuple[PipelineStepConfig, type[PipelineStep]]] = [
             key="data_prep",
             label="Data Preparation",
             icon=ICONS.get("folder", ""),
-            description="Upload, validate, and preprocess your training data for optimal results.",
+            description="Upload and preprocess your training data for optimal results.",
         ),
         DataPreparationStep,
     ),
@@ -297,6 +556,8 @@ def _init_pipeline_state() -> None:
         st.session_state.tp_context = {}  # Shared context between steps
     if "tp_result_model" not in st.session_state:
         st.session_state.tp_result_model = None
+    if "tp_processing" not in st.session_state:
+        st.session_state.tp_processing = False  # Track if a step is currently processing
 
 
 def _render_stepper_header() -> None:
@@ -400,8 +661,12 @@ def _render_step_panel() -> None:
     # Action row: Complete / Back / Next
     left, mid, right = st.columns([1, 2, 1], vertical_alignment="center")
 
+    # Check if currently processing
+    is_processing = st.session_state.get("tp_processing", False)
+
     with left:
-        if st.button("🡠 Back", key="tp_nav_back", disabled=(i == 0), use_container_width=True):
+        # Disable Back button if at first step or processing
+        if st.button("🡠 Back", key="tp_nav_back", disabled=(i == 0 or is_processing), use_container_width=True):
             st.session_state.tp_current_step = max(0, i - 1)
             st.rerun()
 
@@ -412,16 +677,25 @@ def _render_step_panel() -> None:
         can_complete, validation_msg = step.can_complete(st.session_state.tp_context)
 
         completed_label = "✓ Completed" if is_completed else "Complete Step"
-        button_disabled = is_completed or not can_complete
+        # Disable Complete button if already completed, can't complete, or processing
+        button_disabled = is_completed or not can_complete or is_processing
 
-        if st.button(
+        complete_clicked = st.button(
             completed_label,
             key=f"tp_complete_{i}",
             type="secondary" if is_completed else "primary",
             use_container_width=True,
             disabled=button_disabled,
             help=validation_msg if not can_complete else None,
-        ):
+        )
+
+        if complete_clicked and not is_processing:
+            # Set processing state immediately and rerun to disable buttons
+            st.session_state.tp_processing = True
+            st.rerun()
+
+        # Execute processing if state is set (on next render)
+        if is_processing and not is_completed:
             # Execute step backend logic
             try:
                 result = pipeline.execute_step(i, st.session_state.tp_context)
@@ -435,13 +709,17 @@ def _render_step_panel() -> None:
                     st.session_state.tp_current_step = i + 1
 
                 st.success(f"{step.config.label} completed successfully!")
-                st.rerun()
             except Exception as e:
                 st.error(f"Error completing step: {str(e)}")
+            finally:
+                # Reset processing state
+                st.session_state.tp_processing = False
+                st.rerun()
 
     with right:
         can_go_next = (i < pipeline.get_step_count() - 1) and st.session_state.tp_completed[i] and st.session_state.tp_unlocked[i + 1]
-        if st.button("Next 🡢", key="tp_nav_next", disabled=not can_go_next, use_container_width=True):
+        # Disable Next button if can't go next or processing
+        if st.button("Next 🡢", key="tp_nav_next", disabled=(not can_go_next or is_processing), use_container_width=True):
             st.session_state.tp_current_step = min(pipeline.get_step_count() - 1, i + 1)
             st.rerun()
 
