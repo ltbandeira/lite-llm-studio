@@ -7,9 +7,13 @@ for coordinating the main operations of LiteLLM Studio.
 """
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from ..data import DatasetManager, DocumentProcessor
 from ..instrumentation import HardwareScanner
+
+if TYPE_CHECKING:
+    from ..configuration.data_schema import DataProcessingConfig
 
 
 class Orchestrator:
@@ -30,9 +34,13 @@ class Orchestrator:
         self.logger.debug(f"Initializing Orchestrator with logger: {logger_name}")
 
         try:
-            self.hardware_scanner = HardwareScanner()
             self.logger.info("Orchestrator successfully initialized")
+            self.hardware_scanner = HardwareScanner()
             self.logger.debug("Hardware scanner component ready")
+            self.document_processor = DocumentProcessor()
+            self.logger.debug("Document processor component ready")
+            self.dataset_manager = DatasetManager()
+            self.logger.debug("Dataset manager component ready")
         except Exception as e:
             self.logger.error(f"Failed to initialize Orchestrator: {e}", exc_info=True)
             raise
@@ -111,5 +119,76 @@ class Orchestrator:
         except Exception as e:
             self.logger.error("=" * 40)
             self.logger.error(f"CRITICAL ERROR during hardware scan: {str(e)}")
+            self.logger.error("=" * 40, exc_info=True)
+            return None
+
+    def execute_document_processing(self, config: "DataProcessingConfig") -> dict[str, Any] | None:
+        """
+        Process documents using the document processor.
+
+        Args:
+            config: Configuration for document processing.
+
+        Returns:
+            Optional[Dict[str, Any]]: Processing job results or None if error occurs.
+        """
+
+        self.logger.info("=" * 20)
+        self.logger.info("Starting document processing")
+        self.logger.info("=" * 20)
+
+        try:
+            # Create and execute processing job
+            job = self.document_processor.create_processing_job(config)
+            job = self.document_processor.process_job(job)
+
+            if job.status.value == "completed":
+                self.logger.info("Document processing completed successfully")
+                self.logger.info(f"Processed {len(job.processed_documents)} documents")
+                self.logger.info(f"Total chunks: {job.total_chunks()}")
+            else:
+                self.logger.error(f"Document processing failed: {job.error_message}")
+
+            self.logger.info("=" * 20)
+
+            return job.model_dump()
+
+        except Exception as e:
+            self.logger.error("=" * 20)
+            self.logger.error(f"CRITICAL ERROR during document processing: {str(e)}")
+            self.logger.error("=" * 20, exc_info=True)
+            return None
+
+    def create_dataset(self, chunks_files: list[str], output_dir: str, dataset_name: str, description: str = "") -> dict[str, Any] | None:
+        """
+        Create a fine-tuning dataset from processed chunks.
+
+        Args:
+            chunks_files: List of paths to chunk files.
+            output_dir: Directory to save the dataset.
+            dataset_name: Name of the dataset.
+            description: Optional dataset description.
+
+        Returns:
+            Optional[Dict[str, Any]]: Dataset configuration or None if error occurs.
+        """
+        self.logger.info("=" * 40)
+        self.logger.info(f"Creating dataset: {dataset_name}")
+        self.logger.info("=" * 40)
+
+        try:
+            config = self.dataset_manager.create_dataset_from_chunks(chunks_files, output_dir, dataset_name, description)
+
+            self.logger.info("Dataset created successfully")
+            self.logger.info(f"Total samples: {config.total_samples}")
+            self.logger.info(f"Approximate tokens: {config.total_tokens}")
+            self.logger.info(f"Location: {config.dataset_dir}")
+            self.logger.info("=" * 40)
+
+            return config.model_dump()
+
+        except Exception as e:
+            self.logger.error("=" * 40)
+            self.logger.error(f"CRITICAL ERROR during dataset creation: {str(e)}")
             self.logger.error("=" * 40, exc_info=True)
             return None
