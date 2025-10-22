@@ -230,7 +230,7 @@ def render_model_selection_section():
                 # Reset configuration to defaults for the new model
                 st.session_state.model_config = {
                     "temperature": 0.7,
-                    "max_tokens": 2048,
+                    "max_tokens": 1024,
                     "top_p": 0.9,
                     "context_length": 4096,
                     "use_gpu": False,
@@ -337,7 +337,7 @@ def render_model_configuration_section():
             "Max Tokens",
             min_value=1,
             max_value=8192,
-            value=st.session_state.model_config.get("max_tokens", 2048),
+            value=st.session_state.model_config.get("max_tokens", 1024),
             help="Maximum number of tokens to generate",
         )
 

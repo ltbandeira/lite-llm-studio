@@ -192,3 +192,88 @@ class Orchestrator:
             self.logger.error(f"CRITICAL ERROR during dataset creation: {str(e)}")
             self.logger.error("=" * 40, exc_info=True)
             return None
+
+    def execute_training(self, training_config: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        Execute model fine-tuning with LoRA adapters.
+
+        This method coordinates the fine-tuning process using the configuration
+        provided. It validates the inputs, calls the training module, and returns
+        the results.
+
+        Args:
+            training_config: Dictionary containing training configuration:
+                - dataset_dir: Path to dataset directory (with train.jsonl, validation.jsonl)
+                - base_model_path: Path to the base model
+                - output_dir: Directory to save the fine-tuned model
+                - epochs: Number of training epochs
+                - batch_size: Batch size per device
+                - learning_rate: Learning rate for optimizer
+                - max_seq_length: Maximum sequence length
+                - lora_r: LoRA rank
+                - lora_alpha: LoRA alpha parameter
+                - lora_dropout: LoRA dropout rate
+                - gradient_accumulation_steps: Gradient accumulation steps
+
+        Returns:
+            Optional[Dict[str, Any]]: Training results containing:
+                - trained_model_path: Path to the saved model
+                - training_stats: Training statistics
+                Or None if error occurs.
+        """
+        self.logger.info("=" * 40)
+        self.logger.info("Starting model fine-tuning")
+        self.logger.info("=" * 40)
+
+        try:
+            # Import training module
+            from ..ml.training import TrainingConfig, train_lora_model
+
+            # Create training configuration
+            config = TrainingConfig(
+                dataset_dir=training_config["dataset_dir"],
+                base_model_path=training_config["base_model_path"],
+                output_dir=training_config["output_dir"],
+                epochs=training_config.get("epochs", 1),
+                batch_size=training_config.get("batch_size", 4),
+                learning_rate=training_config.get("learning_rate", 2e-4),
+                max_seq_length=training_config.get("max_seq_length", 1024),
+                lora_r=training_config.get("lora_r", 8),
+                lora_alpha=training_config.get("lora_alpha", 16),
+                lora_dropout=training_config.get("lora_dropout", 0.05),
+                gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 1),
+            )
+
+            self.logger.info(f"Dataset: {config.dataset_dir}")
+            self.logger.info(f"Base model: {config.base_model_path}")
+            self.logger.info(f"Output directory: {config.output_dir}")
+            self.logger.info(f"Training parameters:")
+            self.logger.info(f"  - Epochs: {config.epochs}")
+            self.logger.info(f"  - Batch size: {config.batch_size}")
+            self.logger.info(f"  - Learning rate: {config.learning_rate}")
+            self.logger.info(f"  - Max sequence length: {config.max_seq_length}")
+            self.logger.info(f"  - LoRA r: {config.lora_r}")
+            self.logger.info(f"  - LoRA alpha: {config.lora_alpha}")
+            self.logger.info(f"  - LoRA dropout: {config.lora_dropout}")
+            self.logger.info(f"  - Gradient accumulation: {config.gradient_accumulation_steps}")
+
+            # Execute training
+            self.logger.info("Initiating fine-tuning process...")
+            trained_model_path = train_lora_model(config)
+
+            self.logger.info("=" * 40)
+            self.logger.info("Model fine-tuning completed successfully")
+            self.logger.info(f"Fine-tuned model saved to: {trained_model_path}")
+            self.logger.info("=" * 40)
+
+            return {
+                "trained_model_path": trained_model_path,
+                "config": training_config,
+                "status": "success",
+            }
+
+        except Exception as e:
+            self.logger.error("=" * 40)
+            self.logger.error(f"CRITICAL ERROR during model training: {str(e)}")
+            self.logger.error("=" * 40, exc_info=True)
+            return None

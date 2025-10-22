@@ -16,7 +16,7 @@ handlers:
   # Backend Handlers (Core)
   # ============================
   
-  # Weekly file handler for app.orchestrator
+  # Weekly file handler for core.orchestrator
   orchestrator_file:
     class: logging.handlers.TimedRotatingFileHandler
     formatter: detailed
@@ -27,7 +27,7 @@ handlers:
     backupCount: 1
     encoding: utf-8
   
-  # Weekly file handler for app.scanner
+  # Weekly file handler for core.scanner
   scanner_file:
     class: logging.handlers.TimedRotatingFileHandler
     formatter: detailed
@@ -38,12 +38,23 @@ handlers:
     backupCount: 1
     encoding: utf-8
   
-  # Weekly file handler for app.runtime.llamacpp
+  # Weekly file handler for core.runtimes.llamacpp
   llamacpp_runtime_file:
     class: logging.handlers.TimedRotatingFileHandler
     formatter: detailed
     level: DEBUG
     filename: logs/llamacpp_runtime.log
+    when: midnight
+    interval: 7
+    backupCount: 1
+    encoding: utf-8
+  
+  # Weekly file handler for core.ml.training
+  training_file:
+    class: logging.handlers.TimedRotatingFileHandler
+    formatter: detailed
+    level: DEBUG
+    filename: logs/training.log
     when: midnight
     interval: 7
     backupCount: 1
@@ -140,6 +151,11 @@ loggers:
   
   app.runtime.llamacpp:
     handlers: [llamacpp_runtime_file]
+    level: DEBUG
+    propagate: no
+  
+  app.ml.training:
+    handlers: [training_file]
     level: DEBUG
     propagate: no
   

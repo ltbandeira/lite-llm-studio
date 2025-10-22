@@ -8,12 +8,13 @@ This module contains the model training page content.
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
 from lite_llm_studio.core.configuration.data_schema import ChunkingStrategy, DataProcessingConfig
-from lite_llm_studio.core.configuration.desktop_app_config import get_user_data_directory
+from lite_llm_studio.core.configuration.desktop_app_config import get_user_data_directory, get_default_models_directory
 
 from ..icons import ICONS
 
@@ -82,15 +83,21 @@ class ModelRecommendationStep(PipelineStep):
         # TODO: Implement model recommendation UI
 
     def execute(self, context: dict[str, Any]) -> dict[str, Any]:
-        """ """
-        # TODO: Implement backend logic for model recommendation
+        """Execute backend logic for model recommendation."""
+        # For now, this step is automatically completed as model selection
+        # happens in the training step. This could be expanded to include
+        # model recommendation logic based on hardware capabilities.
         self.logger.info("Executing model recommendation step")
         return {}
 
     def validate(self, context: dict[str, Any]) -> tuple[bool, str]:
-        """ """
-        # TODO: Add proper validation logic
-        return True, "True"
+        """Validate if model recommendation step can be completed.
+
+        For now, this step is always valid as it's informational.
+        Can be expanded to check hardware requirements.
+        """
+        # This step is always valid for now
+        return True, "Ready to proceed to data preparation"
 
 
 class DataPreparationStep(PipelineStep):
@@ -174,7 +181,7 @@ class DataPreparationStep(PipelineStep):
                 max_tokens = st.slider(
                     "Max Tokens per Chunk",
                     min_value=64,
-                    max_value=2048,
+                    max_value=1024,
                     value=512,
                     step=64,
                     help="Maximum tokens per chunk (for Hybrid/Hierarchical strategies)",
@@ -408,22 +415,43 @@ class DryRunStep(PipelineStep):
         # TODO: Implement dry run UI
 
     def execute(self, context: dict[str, Any]) -> dict[str, Any]:
-        """ """
-        # TODO: Implement backend logic for dry run
+        """Execute backend logic for dry run step.
+
+        This could validate the configuration, estimate training time,
+        and check resource availability. For now, it's a placeholder.
+        """
         self.logger.info("Executing dry run step")
-        return {}
+
+        # Check if we have the necessary session state from previous steps
+        dataset_name = context.get("dataset_name")
+        if dataset_name:
+            self.logger.info(f"Dry run for dataset: {dataset_name}")
+
+        return {"dry_run_completed": True}
 
     def validate(self, context: dict[str, Any]) -> tuple[bool, str]:
-        """ """
-        # TODO: Add proper validation logic
-        return True, "True"
+        """Validate if dry run step is ready.
+
+        For MVP, this is optional and can always be skipped.
+        """
+        # Dry run is always valid (optional step)
+        return True, "Dry run validation passed"
 
 
 class TrainingStep(PipelineStep):
     """ """
 
     def render_ui(self) -> None:
-        """ """
+        """Render the UI for the training step.
+
+        This step allows the user to select a dataset (produced in the data
+        preparation step), choose a base model from the local models
+        directory, configure a handful of training hyperparameters, and
+        specify an output name for the fine‑tuned model. The selections
+        are stored in ``st.session_state`` so they can be retrieved by
+        the ``execute`` method when the user clicks "Complete Step".
+        """
+        # Step header
         st.markdown(
             f"""
             <div class="kpi-grid">
@@ -440,18 +468,382 @@ class TrainingStep(PipelineStep):
             unsafe_allow_html=True,
         )
 
-        # TODO: Implement training UI
+        st.markdown("---")
+        st.markdown("#### Select Dataset and Base Model")
+
+        # Locate datasets directory under the user data folder. Datasets are
+        # saved during the data preparation step as ``user_data_dir/datasets/<name>``.
+        user_data_dir = get_user_data_directory()
+        datasets_root = user_data_dir / "datasets"
+        dataset_options: list[str] = []
+        dataset_paths: dict[str, str] = {}
+        if datasets_root.exists():
+            for p in datasets_root.iterdir():
+                if p.is_dir() and (p / "train.jsonl").exists():
+                    dataset_options.append(p.name)
+                    dataset_paths[p.name] = str(p)
+        # If no datasets are found, inform the user
+        if not dataset_options:
+            st.warning("No datasets were found. Please complete the Data Preparation step and create a dataset before training.")
+        selected_dataset = None
+        if dataset_options:
+            selected_dataset = st.selectbox(
+                "Dataset",
+                options=dataset_options,
+                help="Select a dataset directory containing train/validation/test JSONL files",
+                key="tp_dataset_select",
+            )
+        # Store selection in session state for execution
+        if selected_dataset:
+            st.session_state.tp_selected_dataset = dataset_paths[selected_dataset]
+
+        # Locate base models. Use the default models directory; if it doesn't
+        # exist, fallback to a ``models`` directory in the project root.
+        models_root = get_default_models_directory()
+        if not models_root.exists():
+            models_root = Path("models")
+        model_options: list[str] = []
+        model_paths: dict[str, str] = {}
+        gguf_models: list[str] = []  # Track GGUF models separately
+        meta_native_models: list[str] = []  # Track Meta native format models
+
+        if models_root.exists():
+            for p in models_root.iterdir():
+                if p.is_dir():
+                    # Check for PyTorch/Transformers format (compatible)
+                    has_config = (p / "config.json").exists()
+                    
+                    # Check for weights in various formats
+                    has_single_weights = any((p / fname).exists() for fname in ["pytorch_model.bin", "model.safetensors"])
+                    has_index = (p / "pytorch_model.bin.index.json").exists() or (p / "model.safetensors.index.json").exists()
+                    has_sharded_weights = any(f.name.startswith("model-") and f.suffix == ".safetensors" for f in p.glob("*.safetensors"))
+                    
+                    has_weights = has_single_weights or has_index or has_sharded_weights
+
+                    if has_config and has_weights:
+                        model_options.append(p.name)
+                        model_paths[p.name] = str(p)
+                    # Check for GGUF format (incompatible with training)
+                    elif any(f.suffix == ".gguf" for f in p.glob("*.gguf")):
+                        gguf_models.append(p.name)
+                    # Check for Meta native format (consolidated.pth + params.json)
+                    elif (p / "params.json").exists() and any(f.name.startswith("consolidated") and f.suffix == ".pth" for f in p.glob("*.pth")):
+                        meta_native_models.append(p.name)
+        selected_model = None
+        if model_options:
+            selected_model = st.selectbox(
+                "Base Model",
+                options=model_options,
+                help="Select the base model to fine‑tune",
+                key="tp_model_select",
+            )
+        else:
+            st.error(f"⚠️ **No compatible models found in**: `{models_root}`")
+
+            # Show GGUF models if found, but explain they're incompatible
+            if gguf_models:
+                st.warning(
+                    f"""
+                    **❌ Modelos GGUF detectados (não compatíveis com fine-tuning):**
+                    
+                    {', '.join(gguf_models)}
+                    
+                    **Modelos GGUF** são otimizados para inferência com llama.cpp, mas **não podem ser usados 
+                    para fine-tuning**. Você precisa de modelos no formato PyTorch/Transformers.
+                    
+                    **Fluxo recomendado:**
+                    1. Baixe modelo HuggingFace (formato PyTorch)
+                    2. Faça fine-tuning aqui no LiteLLM Studio
+                    3. (Opcional) Converta para GGUF depois para uso com llama.cpp
+                    """
+                )
+            
+            # Show Meta native format models if found
+            if meta_native_models:
+                st.warning(
+                    f"""
+                    **❌ Modelos no formato Meta nativo detectados (não compatíveis):**
+                    
+                    {', '.join(meta_native_models)}
+                    
+                    Estes modelos usam o formato original do Meta/Facebook (`consolidated.pth` + `params.json`), 
+                    que não é compatível com o Transformers/Unsloth.
+                    
+                    **Solução:** Baixe a versão HuggingFace destes modelos:
+                    - Para Llama-3.2-3B: `meta-llama/Llama-3.2-3B` ou `meta-llama/Llama-3.2-3B-Instruct`
+                    - Verifique se o diretório contém `config.json` e `model.safetensors`
+                    """
+                )
+
+            st.info(
+                """
+                **Como adicionar modelos:**
+                
+                1. **Baixe um modelo base** (ex: Llama-2, Mistral, Phi) de um dos seguintes locais:
+                   - 🤗 [HuggingFace Models](https://huggingface.co/models)
+                   - 📦 [TheBloke Quantized Models](https://huggingface.co/TheBloke)
+                
+                2. **Extraia o modelo** para o diretório de modelos:
+                   ```
+                   {models_root}\\nome-do-modelo\\
+                   ```
+                
+                3. **Estrutura esperada:**
+                   ```
+                   {models_root}\\
+                   └── llama-2-7b\\
+                       ├── config.json
+                       ├── pytorch_model.bin (ou model.safetensors)
+                       ├── tokenizer.json
+                       └── outros arquivos...
+                   ```
+                
+                4. **Exemplos de comandos** (usando git-lfs):
+                   ```powershell
+                   cd {models_root}
+                   git clone https://huggingface.co/meta-llama/Llama-2-7b-hf
+                   ```
+                   
+                **Modelos recomendados para começar:**
+                - `TinyLlama-1.1B` (mais leve, ~2GB)
+                - `Phi-2` (~5GB, ótimo para GPUs modestas)
+                - `Mistral-7B` (~14GB, muito bom)
+                - `Llama-2-7B` (~13GB, popular)
+                """
+            )
+
+            # Button to open models directory in Windows Explorer
+            col_btn1, col_btn2 = st.columns([1, 3])
+            with col_btn1:
+                if st.button("📂 Abrir Pasta de Modelos", key="open_models_dir"):
+                    import subprocess
+
+                    # Create directory if it doesn't exist
+                    models_root.mkdir(parents=True, exist_ok=True)
+                    # Open in Windows Explorer
+                    subprocess.Popen(f'explorer "{models_root}"')
+                    st.success(f"Abrindo: {models_root}")
+            with col_btn2:
+                if st.button("🔄 Recarregar Lista de Modelos", key="reload_models"):
+                    st.rerun()
+
+        if selected_model:
+            st.session_state.tp_selected_model = model_paths[selected_model]
+
+        st.markdown("---")
+        st.markdown("#### Training Hyperparameters")
+        # Hyperparameter inputs. Use reasonable defaults for LoRA fine‑tuning.
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            epochs = st.number_input(
+                "Epochs",
+                min_value=1,
+                max_value=10,
+                value=1,
+                step=1,
+                help="Number of epochs to train",
+                key="tp_epochs",
+            )
+            batch_size = st.number_input(
+                "Batch Size",
+                min_value=1,
+                max_value=16,
+                value=4,
+                step=1,
+                help="Per‑device batch size",
+                key="tp_batch_size",
+            )
+            gradient_accumulation = st.number_input(
+                "Gradient Accumulation",
+                min_value=1,
+                max_value=32,
+                value=1,
+                step=1,
+                help="Number of gradient accumulation steps",
+                key="tp_gradient_accumulation",
+            )
+        with col2:
+            learning_rate = st.number_input(
+                "Learning Rate",
+                min_value=1e-5,
+                max_value=1e-3,
+                value=2e-4,
+                step=1e-5,
+                format="%f",
+                help="Initial learning rate for the optimiser",
+                key="tp_learning_rate",
+            )
+            max_seq_length = st.number_input(
+                "Max Sequence Length",
+                min_value=128,
+                max_value=4096,
+                value=1024,
+                step=128,
+                help="Maximum sequence length (context window)",
+                key="tp_max_seq_length",
+            )
+        with col3:
+            lora_r = st.number_input(
+                "LoRA Rank (r)",
+                min_value=1,
+                max_value=64,
+                value=8,
+                step=1,
+                help="Rank of LoRA adapters (controls adapter size)",
+                key="tp_lora_r",
+            )
+            lora_alpha = st.number_input(
+                "LoRA Alpha",
+                min_value=1,
+                max_value=256,
+                value=16,
+                step=1,
+                help="LoRA alpha scaling factor",
+                key="tp_lora_alpha",
+            )
+            lora_dropout = st.number_input(
+                "LoRA Dropout",
+                min_value=0.0,
+                max_value=0.5,
+                value=0.0,
+                step=0.01,
+                format="%.2f",
+                help="Dropout probability for LoRA layers",
+                key="tp_lora_dropout",
+            )
+
+        # Store hyperparameters in session state for later retrieval
+        st.session_state.tp_training_params = {
+            "epochs": int(epochs),
+            "batch_size": int(batch_size),
+            "gradient_accumulation_steps": int(gradient_accumulation),
+            "learning_rate": float(learning_rate),
+            "max_seq_length": int(max_seq_length),
+            "lora_r": int(lora_r),
+            "lora_alpha": int(lora_alpha),
+            "lora_dropout": float(lora_dropout),
+        }
+
+        st.markdown("---")
+        st.markdown("#### Output Configuration")
+        output_name = st.text_input(
+            "Output Model Name",
+            value="finetuned_model",
+            help="Name of the directory to save the fine‑tuned model",
+            key="tp_output_name",
+        )
+        if output_name:
+            st.session_state.tp_output_model_name = output_name.strip()
+        # Reserve a container for training status messages
+        st.session_state.tp_train_status = st.empty()
 
     def execute(self, context: dict[str, Any]) -> dict[str, Any]:
-        """ """
-        # TODO: Implement backend logic for training
+        """Run the fine‑tuning procedure on the selected dataset and model.
+
+        This method reads the configuration stored in ``st.session_state`` during
+        ``render_ui`` (dataset selection, model selection, hyperparameters
+        and output name), constructs a training configuration dictionary,
+        and invokes the orchestrator's training function. It displays a
+        progress message using Streamlit widgets and returns the path of
+        the trained model in the shared context.
+
+        Args:
+            context: Shared pipeline context (unused here).
+
+        Returns:
+            dict: Dictionary containing the key ``trained_model`` with the
+                  path to the saved fine‑tuned model.
+        """
         self.logger.info("Executing training step")
-        return {}
+        # Retrieve selections from session state
+        dataset_dir = st.session_state.get("tp_selected_dataset")
+        base_model_path = st.session_state.get("tp_selected_model")
+        params = st.session_state.get("tp_training_params", {})
+        output_name = st.session_state.get("tp_output_model_name")
+        if not dataset_dir:
+            raise ValueError("No dataset selected. Please choose a dataset before training.")
+        if not base_model_path:
+            raise ValueError("No base model selected. Please choose a model before training.")
+        if not output_name:
+            raise ValueError("No output model name provided.")
+
+        # Construct absolute dataset and output paths
+        user_data_dir = get_user_data_directory()
+        # Ensure dataset directory exists
+        ds_path = Path(dataset_dir)
+        if not ds_path.exists():
+            raise FileNotFoundError(f"Dataset directory not found: {ds_path}")
+        # Output directory will reside under models directory
+        models_root = get_default_models_directory()
+        if not models_root.exists():
+            models_root = Path("models")
+        output_dir = models_root / output_name
+        # Build training configuration dictionary
+        training_cfg: dict[str, Any] = {
+            "dataset_dir": str(ds_path),
+            "base_model_path": str(base_model_path),
+            "output_dir": str(output_dir),
+            "epochs": params.get("epochs", 1),
+            "batch_size": params.get("batch_size", 4),
+            "learning_rate": params.get("learning_rate", 2e-4),
+            "max_seq_length": params.get("max_seq_length", 1024),
+            "lora_r": params.get("lora_r", 8),
+            "lora_alpha": params.get("lora_alpha", 16),
+            "lora_dropout": params.get("lora_dropout", 0.05),
+            "gradient_accumulation_steps": params.get("gradient_accumulation_steps", 1),
+        }
+        # Log configuration
+        self.logger.info(f"Training configuration: {training_cfg}")
+        # Obtain orchestrator and run training
+        from lite_llm_studio.app.app import get_orchestrator
+
+        orchestrator = get_orchestrator()
+        status_placeholder = st.session_state.get("tp_train_status")
+        if status_placeholder:
+            status_placeholder.empty()
+            with status_placeholder.container():
+                st.info("Training model... This may take a while.")
+                result = orchestrator.execute_training(training_cfg)
+        else:
+            with st.spinner("Training model..."):
+                result = orchestrator.execute_training(training_cfg)
+        if not result or not result.get("trained_model_path"):
+            raise RuntimeError("Model training failed or returned no output.")
+        trained_model_path = result["trained_model_path"]
+        # Display success message
+        if status_placeholder:
+            status_placeholder.empty()
+            with status_placeholder.container():
+                st.success(f"Training completed! Model saved at: {trained_model_path}")
+        else:
+            st.success(f"Training completed! Model saved at: {trained_model_path}")
+        # Update context
+        return {"trained_model": trained_model_path}
 
     def validate(self, context: dict[str, Any]) -> tuple[bool, str]:
-        """ """
-        # TODO: Add proper validation logic
-        return True, "True"
+        """Validate if this training step is ready to be executed.
+
+        Checks for the presence of a selected dataset, selected base model
+        and a non‑empty output model name. Also ensures that training
+        hyperparameters have been configured.
+
+        Args:
+            context: Shared pipeline context (unused here).
+
+        Returns:
+            Tuple[bool, str]: A boolean indicating readiness, and a
+            message explaining the issue if not ready.
+        """
+        if not st.session_state.get("tp_selected_dataset"):
+            return False, "Please select a dataset to use for training"
+        if not st.session_state.get("tp_selected_model"):
+            return False, "Please select a base model"
+        if not st.session_state.get("tp_output_model_name"):
+            return False, "Please provide an output model name"
+        # Check hyperparameters exist
+        if not st.session_state.get("tp_training_params"):
+            return False, "Please configure training hyperparameters"
+        return True, "Ready to train"
 
 
 # Pipeline registry
@@ -734,8 +1126,74 @@ def _render_step_panel() -> None:
                 final_result = st.session_state.tp_context.get("trained_model")
                 if final_result:
                     st.session_state.tp_result_model = final_result
-                    st.success("Pipeline completed successfully! The trained model is now available.")
-                    # TODO: Implement model persistence and indexing
+                    st.success("✅ Pipeline completed successfully! The trained model is now available.")
+
+                    # Show GGUF conversion option
+                    st.markdown("---")
+                    st.markdown("### 🔄 Convert to GGUF (Optional)")
+                    st.info(
+                        """
+                        **GGUF format** permite usar seu modelo ajustado com **llama.cpp** para inferência otimizada.
+                        
+                        **Vantagens:**
+                        - Execução mais rápida em CPU
+                        - Menor uso de memória com quantização
+                        - Compatível com diversas ferramentas (Ollama, LM Studio, etc.)
+                        """
+                    )
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        quantization = st.selectbox(
+                            "Tipo de Quantização",
+                            options=["Q4_K_M", "Q5_K_M", "Q8_0", "F16"],
+                            index=0,
+                            help="Q4_K_M: Balanceado (recomendado), Q8_0: Alta qualidade, F16: Sem quantização",
+                            key="tp_gguf_quant",
+                        )
+
+                    if st.button("🚀 Converter para GGUF", key="tp_convert_gguf", type="primary"):
+                        try:
+                            with st.spinner("Convertendo modelo para GGUF... Isso pode demorar alguns minutos."):
+                                from lite_llm_studio.core.ml.model_converter import convert_finetuned_model_to_gguf
+
+                                # Get base model path from training config
+                                base_model = st.session_state.get("tp_selected_model")
+
+                                result = convert_finetuned_model_to_gguf(
+                                    adapter_path=final_result,
+                                    base_model_path=base_model,
+                                    quantization=quantization,
+                                )
+
+                                st.success(f"✅ Modelo convertido com sucesso!")
+                                st.code(f"GGUF: {result['gguf_model']}")
+                                st.info(f"Modelo merged (PyTorch): {result['merged_model']}")
+
+                        except Exception as e:
+                            st.error(f"❌ Erro na conversão: {str(e)}")
+                            if "llama.cpp" in str(e):
+                                st.warning(
+                                    """
+                                    **Para converter para GGUF, você precisa:**
+                                    
+                                    1. Clone llama.cpp:
+                                    ```bash
+                                    git clone https://github.com/ggerganov/llama.cpp
+                                    cd llama.cpp
+                                    ```
+                                    
+                                    2. Instale dependências:
+                                    ```bash
+                                    pip install -r requirements.txt
+                                    ```
+                                    
+                                    3. (Opcional) Compile para quantização:
+                                    ```bash
+                                    make
+                                    ```
+                                    """
+                                )
                 else:
                     st.warning("Pipeline completed but no trained model was found in context.")
             except Exception as e:
