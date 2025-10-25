@@ -512,12 +512,12 @@ class TrainingStep(PipelineStep):
                 if p.is_dir():
                     # Check for PyTorch/Transformers format (compatible)
                     has_config = (p / "config.json").exists()
-                    
+
                     # Check for weights in various formats
                     has_single_weights = any((p / fname).exists() for fname in ["pytorch_model.bin", "model.safetensors"])
                     has_index = (p / "pytorch_model.bin.index.json").exists() or (p / "model.safetensors.index.json").exists()
                     has_sharded_weights = any(f.name.startswith("model-") and f.suffix == ".safetensors" for f in p.glob("*.safetensors"))
-                    
+
                     has_weights = has_single_weights or has_index or has_sharded_weights
 
                     if has_config and has_weights:
@@ -557,7 +557,7 @@ class TrainingStep(PipelineStep):
                     3. (Opcional) Converta para GGUF depois para uso com llama.cpp
                     """
                 )
-            
+
             # Show Meta native format models if found
             if meta_native_models:
                 st.warning(
@@ -950,6 +950,8 @@ def _init_pipeline_state() -> None:
         st.session_state.tp_result_model = None
     if "tp_processing" not in st.session_state:
         st.session_state.tp_processing = False  # Track if a step is currently processing
+    if "tp_pipeline_finished" not in st.session_state:
+        st.session_state.tp_pipeline_finished = False  # Track if pipeline has been finished
 
 
 def _render_stepper_header() -> None:
@@ -1126,78 +1128,82 @@ def _render_step_panel() -> None:
                 final_result = st.session_state.tp_context.get("trained_model")
                 if final_result:
                     st.session_state.tp_result_model = final_result
-                    st.success("✅ Pipeline completed successfully! The trained model is now available.")
-
-                    # Show GGUF conversion option
-                    st.markdown("---")
-                    st.markdown("### 🔄 Convert to GGUF (Optional)")
-                    st.info(
-                        """
-                        **GGUF format** permite usar seu modelo ajustado com **llama.cpp** para inferência otimizada.
-                        
-                        **Vantagens:**
-                        - Execução mais rápida em CPU
-                        - Menor uso de memória com quantização
-                        - Compatível com diversas ferramentas (Ollama, LM Studio, etc.)
-                        """
-                    )
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        quantization = st.selectbox(
-                            "Tipo de Quantização",
-                            options=["Q4_K_M", "Q5_K_M", "Q8_0", "F16"],
-                            index=0,
-                            help="Q4_K_M: Balanceado (recomendado), Q8_0: Alta qualidade, F16: Sem quantização",
-                            key="tp_gguf_quant",
-                        )
-
-                    if st.button("🚀 Converter para GGUF", key="tp_convert_gguf", type="primary"):
-                        try:
-                            with st.spinner("Convertendo modelo para GGUF... Isso pode demorar alguns minutos."):
-                                from lite_llm_studio.core.ml.model_converter import convert_finetuned_model_to_gguf
-
-                                # Get base model path from training config
-                                base_model = st.session_state.get("tp_selected_model")
-
-                                result = convert_finetuned_model_to_gguf(
-                                    adapter_path=final_result,
-                                    base_model_path=base_model,
-                                    quantization=quantization,
-                                )
-
-                                st.success(f"✅ Modelo convertido com sucesso!")
-                                st.code(f"GGUF: {result['gguf_model']}")
-                                st.info(f"Modelo merged (PyTorch): {result['merged_model']}")
-
-                        except Exception as e:
-                            st.error(f"❌ Erro na conversão: {str(e)}")
-                            if "llama.cpp" in str(e):
-                                st.warning(
-                                    """
-                                    **Para converter para GGUF, você precisa:**
-                                    
-                                    1. Clone llama.cpp:
-                                    ```bash
-                                    git clone https://github.com/ggerganov/llama.cpp
-                                    cd llama.cpp
-                                    ```
-                                    
-                                    2. Instale dependências:
-                                    ```bash
-                                    pip install -r requirements.txt
-                                    ```
-                                    
-                                    3. (Opcional) Compile para quantização:
-                                    ```bash
-                                    make
-                                    ```
-                                    """
-                                )
+                    st.session_state.tp_pipeline_finished = True  # Mark pipeline as finished
+                    st.success("Pipeline completed successfully! The trained model is now available.")
+                    st.rerun()  # Rerun to show GGUF conversion section
                 else:
                     st.warning("Pipeline completed but no trained model was found in context.")
             except Exception as e:
                 st.error(f"Error finishing pipeline: {str(e)}")
+
+        # Show GGUF conversion section if pipeline has been finished
+        if st.session_state.get("tp_pipeline_finished", False) and st.session_state.get("tp_result_model"):
+            st.markdown("---")
+            st.markdown("#### Convert to GGUF")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                quantization = st.selectbox(
+                    "Quantization Format",
+                    options=["f16", "q8_0", "f32", "bf16", "auto"],
+                    index=0,
+                    help="f16: Recommended (16-bit float), q8_0: Compressed (8-bit), f32: No compression, auto: Detects automatically",
+                    key="tp_gguf_quant",
+                )
+
+            if st.button("Convert to GGUF", key="tp_convert_gguf", type="primary"):
+                try:
+                    with st.spinner("Converting model to GGUF... This may take a few minutes."):
+                        from lite_llm_studio.core.ml.model_converter import convert_finetuned_model_to_gguf
+                        from lite_llm_studio.core.configuration import get_default_models_directory
+
+                        # Get the trained model path
+                        final_result = st.session_state.get("tp_result_model")
+
+                        # Get base model path from training config
+                        base_model = st.session_state.get("tp_selected_model")
+
+                        # Get models directory to save GGUF files
+                        models_dir = str(get_default_models_directory())
+
+                        logger.info(f"Converting model to GGUF: adapter={final_result}, base={base_model}, quant={quantization}")
+
+                        result = convert_finetuned_model_to_gguf(
+                            adapter_path=final_result,
+                            base_model_path=base_model,
+                            quantization=quantization,
+                            models_dir=models_dir,  # Save GGUF in models/ directory
+                        )
+
+                        st.success(f"GGUF model conversion completed successfully!")
+
+                        # Show the paths in a more organized way
+                        st.markdown("#### Generated Files")
+
+                        # GGUF model (main output)
+                        st.markdown("**GGUF Model (ready to use):**")
+                        st.code(result["gguf_model"], language=None)
+                        st.caption(f"This is a **complete standalone model** - ready to use!")
+
+                        # Show merged model path (intermediate)
+                        # with st.expander("ℹ️ View intermediate model (PyTorch merged)"):
+                        #     st.code(result["merged_model"], language=None)
+                        #     st.caption("This is the PyTorch model with merged LoRA adapters (used as intermediate)")
+
+                        # st.success(
+                        #     "**✅ GGUF Standalone Model Created!**\n\n"
+                        #     "This GGUF model contains the base model + merged LoRA adaptations.\n"
+                        #     "You can use it directly without needing the base model or separate adapter!\n\n"
+                        #     "**Como usar:**\n"
+                        #     '- **llama.cpp**: `./llama-cli -m model-f16.gguf -p "prompt"`\n'
+                        #     "- **Ollama**: Importe o arquivo .gguf no Ollama\n"
+                        #     "- **LM Studio**: Arraste o arquivo .gguf para LM Studio\n"
+                        #     "- **Python**: Use com llama-cpp-python diretamente"
+                        # )
+
+                except Exception as e:
+                    st.error(f"Conversion Error: {str(e)}")
+                    logger.error(f"GGUF conversion error: {e}", exc_info=True)
 
 
 def _render_pipeline_summary() -> None:

@@ -63,6 +63,24 @@ class LlamaCppRuntime(BaseRuntime):
     def load(self, card: ModelCard, spec: RuntimeSpec) -> None:
         try:
             from llama_cpp import Llama  # type: ignore
+            
+            # Patch for llama-cpp-python 0.3.16 AttributeError bug
+            try:
+                from llama_cpp._internals import LlamaModel
+                original_del = LlamaModel.__del__
+                
+                def patched_del(self):
+                    try:
+                        original_del(self)
+                    except AttributeError:
+                        # Suppress 'sampler' AttributeError in llama-cpp-python 0.3.16
+                        pass
+                
+                LlamaModel.__del__ = patched_del
+                self.logger.debug("Applied patch for llama-cpp-python 0.3.16 AttributeError")
+            except Exception as e:
+                self.logger.debug(f"Could not apply llama-cpp-python patch: {e}")
+                
         except Exception:
             # Fallback to mock implementation for testing
             try:
@@ -81,6 +99,7 @@ class LlamaCppRuntime(BaseRuntime):
             "model_path": model_path,
             "n_ctx": spec.n_ctx,
             "n_threads": spec.n_threads,
+            "verbose": True,
         }
         # GPU (se desejar/possível) - permite -1 para todas as camadas
         if spec.n_gpu_layers is not None and spec.n_gpu_layers != 0:
@@ -213,7 +232,26 @@ class LlamaCppRuntime(BaseRuntime):
         return text.strip()
 
     def unload(self) -> None:
-        self._llm = None
+        """Unload model with proper cleanup to avoid AttributeError in __del__"""
+        if self._llm is not None:
+            try:
+                # Try to close properly if method exists
+                if hasattr(self._llm, 'close'):
+                    self._llm.close()
+                elif hasattr(self._llm, '_model') and hasattr(self._llm._model, 'close'):
+                    self._llm._model.close()
+            except Exception as e:
+                self.logger.debug(f"Error during model cleanup (can be ignored): {e}")
+            finally:
+                self._llm = None
+        
         self._loaded = False
         self._card = None
         self._spec = None
+    
+    def __del__(self):
+        """Destructor with error suppression for llama-cpp-python 0.3.16 bug"""
+        try:
+            self.unload()
+        except Exception:
+            pass  # Suppress any errors during cleanup

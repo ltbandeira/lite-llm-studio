@@ -281,31 +281,63 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
     if "validation" in ds:
         logger.info(f"Validation samples: {len(ds['validation'])}")
 
-    # Load base model and tokenizer with Unsloth optimization
+    # Load base model and tokenizer
+    # Use Unsloth for GPU (CUDA), native Transformers for CPU
     logger.info(f"Loading base model from {base_model_path}")
     if progress_callback:
         progress_callback("Loading base model...", 20.0)
 
+    use_unsloth = hardware["device"] == "cuda"
+    logger.info(f"Using {'Unsloth (GPU-optimized)' if use_unsloth else 'Transformers (CPU-compatible)'} for model loading")
+
     try:
-        # Determine dtype based on hardware
-        # Unsloth only accepts None, torch.float16, or torch.bfloat16
-        # For CPU or when we want auto-selection, use None
-        if config.use_4bit or hardware["device"] == "cpu":
-            dtype = None  # Let Unsloth choose the best dtype
+        if use_unsloth:
+            # GPU: Use Unsloth for optimal performance
+            # Determine dtype based on hardware
+            # Unsloth only accepts None, torch.float16, or torch.bfloat16
+            if config.use_4bit:
+                dtype = None  # Let Unsloth choose the best dtype
+            else:
+                # For non-quantized GPU training, use float16
+                import torch
+                dtype = torch.float16
+
+            logger.info(f"Loading model with Unsloth: dtype={dtype}, 4-bit={config.use_4bit}")
+
+            model, tokenizer = FastLanguageModel.from_pretrained(
+                model_name=str(base_model_path),
+                max_seq_length=config.max_seq_length,
+                dtype=dtype,
+                load_in_4bit=config.use_4bit,
+            )
         else:
-            # For non-quantized GPU training, use float16
+            # CPU: Use native Transformers + PEFT (Unsloth doesn't support CPU)
+            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
             import torch
 
-            dtype = torch.float16
+            logger.info(f"Loading model with Transformers: 4-bit={config.use_4bit}")
 
-        logger.info(f"Loading model with dtype={dtype}, 4-bit={config.use_4bit}")
+            # Configure quantization for CPU
+            quantization_config = None
+            if config.use_4bit:
+                quantization_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_quant_type="nf4",
+                )
 
-        model, tokenizer = FastLanguageModel.from_pretrained(
-            model_name=str(base_model_path),
-            max_seq_length=config.max_seq_length,
-            dtype=dtype,
-            load_in_4bit=config.use_4bit,
-        )
+            # Load model with transformers
+            model = AutoModelForCausalLM.from_pretrained(
+                str(base_model_path),
+                quantization_config=quantization_config,
+                device_map="cpu",
+                torch_dtype=torch.float32,  # CPU uses float32
+                low_cpu_mem_usage=True,
+            )
+
+            # Load tokenizer
+            tokenizer = AutoTokenizer.from_pretrained(str(base_model_path))
 
         # Ensure tokenizer has pad token
         if tokenizer.pad_token is None:
