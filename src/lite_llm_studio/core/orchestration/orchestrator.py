@@ -247,7 +247,7 @@ class Orchestrator:
             self.logger.info(f"Dataset: {config.dataset_dir}")
             self.logger.info(f"Base model: {config.base_model_path}")
             self.logger.info(f"Output directory: {config.output_dir}")
-            self.logger.info(f"Training parameters:")
+            self.logger.info("Training parameters:")
             self.logger.info(f"  - Epochs: {config.epochs}")
             self.logger.info(f"  - Batch size: {config.batch_size}")
             self.logger.info(f"  - Learning rate: {config.learning_rate}")

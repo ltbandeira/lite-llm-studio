@@ -573,9 +573,6 @@ def load_model():
         logger.info(f"  calculated gpu_layers: {gpu_layers}")
         logger.info(f"  runtime_spec.n_gpu_layers: {runtime_spec.n_gpu_layers}")
 
-        # Show debug info in UI temporarily
-        st.info(f"Debug: GPU={use_gpu}, Layers={gpu_layers}, Config={st.session_state.model_config.get('use_gpu', 'NOT_SET')}")
-
         # Initialize or reinitialize runtime
         if st.session_state.model_runtime is None:
             logger.debug("Initializing LlamaCppRuntime")

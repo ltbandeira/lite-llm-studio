@@ -15,11 +15,11 @@ from .base import BaseRuntime
 # Chat templates for different model families
 CHAT_TEMPLATES = {
     "LLaMA": {
-        "system": "<s>[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n\n",
-        "user": "{message} [/INST]",
-        "assistant": " {message} </s><s>[INST] ",
-        "conversation_end": "[/INST]",
-        "simple_format": "System: {system_prompt}\n\nUser: {user_message}\nAssistant:",
+        "system": "<|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>",
+        "user": "<|start_header_id|>user<|end_header_id|>\n\n{message}<|eot_id|>",
+        "assistant": "<|start_header_id|>assistant<|end_header_id|>\n\n{message}<|eot_id|>",
+        "conversation_end": "<|start_header_id|>assistant<|end_header_id|>\n\n",
+        "simple_format": "<|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{user_message}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
     },
     "Qwen": {
         "system": "<|im_start|>system\n{system_prompt}<|im_end|>\n",
@@ -63,24 +63,25 @@ class LlamaCppRuntime(BaseRuntime):
     def load(self, card: ModelCard, spec: RuntimeSpec) -> None:
         try:
             from llama_cpp import Llama  # type: ignore
-            
+
             # Patch for llama-cpp-python 0.3.16 AttributeError bug
             try:
                 from llama_cpp._internals import LlamaModel
+
                 original_del = LlamaModel.__del__
-                
+
                 def patched_del(self):
                     try:
                         original_del(self)
                     except AttributeError:
                         # Suppress 'sampler' AttributeError in llama-cpp-python 0.3.16
                         pass
-                
+
                 LlamaModel.__del__ = patched_del
                 self.logger.debug("Applied patch for llama-cpp-python 0.3.16 AttributeError")
             except Exception as e:
                 self.logger.debug(f"Could not apply llama-cpp-python patch: {e}")
-                
+
         except Exception:
             # Fallback to mock implementation for testing
             try:
@@ -111,6 +112,24 @@ class LlamaCppRuntime(BaseRuntime):
         # Debug: mostra todos os parâmetros
         final_kwargs = {k: v for k, v in kwargs.items() if v is not None}
         self.logger.info(f"Final Llama() parameters: {final_kwargs}")
+
+        # Auto-detect model family if not set
+        if not card.family or card.family == "Unknown":
+            model_name_lower = model_path.lower()
+            if "llama" in model_name_lower or "llama-3" in model_name_lower:
+                card.family = "LLaMA"
+                self.logger.info(f"Auto-detected model family: LLaMA (from path: {model_path})")
+            elif "qwen" in model_name_lower:
+                card.family = "Qwen"
+                self.logger.info(f"Auto-detected model family: Qwen")
+            elif "mistral" in model_name_lower:
+                card.family = "Mistral"
+                self.logger.info(f"Auto-detected model family: Mistral")
+            elif "phi" in model_name_lower:
+                card.family = "Phi"
+                self.logger.info(f"Auto-detected model family: Phi")
+            else:
+                self.logger.warning(f"Could not auto-detect model family from: {model_path}")
 
         # Log model family for debugging
         if card.family:
@@ -162,9 +181,16 @@ class LlamaCppRuntime(BaseRuntime):
     def _format_full_conversation(self, history: list[dict], template: dict) -> str:
         """Format full multi-turn conversation using model-specific templates."""
         parts = []
+        has_system_in_history = False
 
-        # Add system message if available
-        if self._card and self._card.system_prompt:
+        # Check if there's a system message in history
+        for msg in history:
+            if msg.get("role", "").lower() == "system":
+                has_system_in_history = True
+                break
+
+        # Add system message from card if no system message in history
+        if not has_system_in_history and self._card and self._card.system_prompt:
             parts.append(template["system"].format(system_prompt=self._card.system_prompt))
 
         # Process conversation history
@@ -174,7 +200,9 @@ class LlamaCppRuntime(BaseRuntime):
             if not content:
                 continue
 
-            if role == "user":
+            if role == "system":
+                parts.append(template["system"].format(system_prompt=content))
+            elif role == "user":
                 if i == len(history) - 1:  # Last message (current user input)
                     parts.append(template["user"].format(message=content))
                 else:
@@ -218,13 +246,39 @@ class LlamaCppRuntime(BaseRuntime):
         if self._card:
             self.logger.debug(f"Using chat template for {self._card.family} family")
 
-        # Generate response
+        # Prepare stop tokens - add model-specific stops
+        stop_tokens = params.stop or []
+        if isinstance(stop_tokens, str):
+            stop_tokens = [stop_tokens]
+
+        # Add model-specific stop tokens based on family
+        family = self._card.family if self._card else "Unknown"
+
+        if family == "LLaMA":
+            # Llama 3 specific stop tokens
+            default_stops = ["<|eot_id|>", "<|end_of_text|>", "<|start_header_id|>"]
+        else:
+            # Generic stop tokens for other models
+            default_stops = ["\n\nUser:", "\n\nSystem:", "User:", "<|endoftext|>", "<|end_of_text|>"]
+
+        stop_tokens = list(set(stop_tokens + default_stops))
+
+        # Log generation parameters for debugging
+        self.logger.debug(
+            f"Generation params: max_tokens={params.max_new_tokens}, " f"temp={params.temperature}, repeat_penalty=1.15, stops={len(stop_tokens)}"
+        )
+
+        # Generate response with strong anti-repetition parameters
         out = self._llm(
             prompt=prompt,
             max_tokens=params.max_new_tokens,
             temperature=params.temperature,
             top_p=params.top_p,
-            stop=params.stop or None,
+            repeat_penalty=1.15,  # Penalty to prevent repetition
+            frequency_penalty=0.0,  # Let repeat_penalty handle this
+            presence_penalty=0.0,  # Let repeat_penalty handle this
+            stop=stop_tokens if stop_tokens else None,
+            echo=False,  # Don't echo the prompt back
         )
 
         # Extract text from llama-cpp response
@@ -236,19 +290,19 @@ class LlamaCppRuntime(BaseRuntime):
         if self._llm is not None:
             try:
                 # Try to close properly if method exists
-                if hasattr(self._llm, 'close'):
+                if hasattr(self._llm, "close"):
                     self._llm.close()
-                elif hasattr(self._llm, '_model') and hasattr(self._llm._model, 'close'):
+                elif hasattr(self._llm, "_model") and hasattr(self._llm._model, "close"):
                     self._llm._model.close()
             except Exception as e:
                 self.logger.debug(f"Error during model cleanup (can be ignored): {e}")
             finally:
                 self._llm = None
-        
+
         self._loaded = False
         self._card = None
         self._spec = None
-    
+
     def __del__(self):
         """Destructor with error suppression for llama-cpp-python 0.3.16 bug"""
         try:

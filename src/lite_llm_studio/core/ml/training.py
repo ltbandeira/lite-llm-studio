@@ -22,10 +22,21 @@ if platform.system() == "Windows":
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Callable
+
 import unsloth
+from unsloth import FastLanguageModel
+import torch
+from datasets import Dataset, load_dataset
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    TrainerCallback,
+)
+from trl import SFTConfig, SFTTrainer
 
 logger = logging.getLogger("app.ml.training")
 
@@ -79,6 +90,7 @@ class TrainingConfig:
     weight_decay: float = 0.01
     use_gradient_checkpointing: bool = True
     use_4bit: bool = True
+    max_steps: int = 1000  # Maximum training steps. -1 means no limit (train full epochs)
 
 
 def _detect_hardware() -> dict[str, any]:
@@ -91,7 +103,7 @@ def _detect_hardware() -> dict[str, any]:
             - device: str (cuda, mps, or cpu)
             - gpu_memory_gb: float (if applicable)
     """
-    import torch
+    # import torch
 
     hardware = {
         "has_cuda": torch.cuda.is_available(),
@@ -147,6 +159,44 @@ def _optimize_config_for_hardware(config: TrainingConfig, hardware: dict[str, an
     return config
 
 
+def _calculate_eval_steps(max_steps: int, total_steps: int) -> int:
+    """ """
+    if max_steps > 0:
+        # For limited training runs, evaluate strategically
+        if max_steps <= 1000:
+            return 100  # Evaluate every 100 steps (10 times)
+        elif max_steps <= 5000:
+            return 500  # Evaluate every 500 steps (10 times)
+        elif max_steps <= 10000:
+            return 1000  # Evaluate every 1000 steps (10 times)
+        elif max_steps <= 50000:
+            return 2500  # Evaluate every 2500 steps (20 times)
+        else:
+            return 5000  # Evaluate every 5000 steps
+    else:
+        # For full epoch training, evaluate every 1% of total steps
+        return max(100, total_steps // 100)
+
+
+def _calculate_save_steps(max_steps: int, total_steps: int) -> int:
+    """ """
+    if max_steps > 0:
+        # For limited training runs, save checkpoints strategically
+        if max_steps <= 1000:
+            return 500  # Save every 500 steps (2 checkpoints)
+        elif max_steps <= 5000:
+            return 1000  # Save every 1000 steps (5 checkpoints)
+        elif max_steps <= 10000:
+            return 2000  # Save every 2000 steps (5 checkpoints)
+        elif max_steps <= 50000:
+            return 5000  # Save every 5000 steps (10 checkpoints)
+        else:
+            return 10000  # Save every 10000 steps
+    else:
+        # For full epoch training, save every 2% of total steps
+        return max(500, total_steps // 50)
+
+
 def load_jsonl_dataset(file_path: str) -> list[dict[str, str]]:
     """Load a JSONL file into a list of dictionaries.
 
@@ -157,7 +207,7 @@ def load_jsonl_dataset(file_path: str) -> list[dict[str, str]]:
         A list of dictionaries, each representing a sample.
     """
     samples: list[dict[str, str]] = []
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         for line in f:
             if not line.strip():
                 continue
@@ -170,7 +220,7 @@ def load_jsonl_dataset(file_path: str) -> list[dict[str, str]]:
     return samples
 
 
-def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callable[[str, float], None]] = None) -> str:
+def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, float], None] | None = None) -> str:
     """Fine‑tune a causal LM using LoRA adapters on the provided dataset.
 
     This function performs parameter‑efficient fine‑tuning using the
@@ -199,11 +249,11 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
     """
 
     # Import modules after verifying dependencies
-    import torch
-    from unsloth import FastLanguageModel
-    from datasets import load_dataset, disable_caching
-    from trl import SFTTrainer, SFTConfig
-    from transformers import TrainerCallback
+    # import torch
+    # from datasets import load_dataset
+    # from transformers import TrainerCallback
+    # from trl import SFTConfig, SFTTrainer
+    # from unsloth import FastLanguageModel
 
     # Disable torch compilation on Windows to avoid Triton compatibility issues
     if platform.system() == "Windows":
@@ -279,7 +329,17 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
     train_samples = len(ds["train"])
     logger.info(f"Training samples: {train_samples}")
     if "validation" in ds:
-        logger.info(f"Validation samples: {len(ds['validation'])}")
+        original_val_size = len(ds["validation"])
+        logger.info(f"Validation samples: {original_val_size}")
+
+        # Optimize validation set size for faster evaluation
+        max_val_samples = min(1000, int(train_samples * 0.05), original_val_size)
+
+        if original_val_size > max_val_samples:
+            logger.info(f"Reducing validation set from {original_val_size} to {max_val_samples} samples for faster evaluation")
+            # Select first N samples for deterministic behavior
+            ds["validation"] = ds["validation"].select(range(max_val_samples))
+            logger.info(f"Validation set optimized: {len(ds['validation'])} samples")
 
     # Load base model and tokenizer
     # Use Unsloth for GPU (CUDA), native Transformers for CPU
@@ -299,7 +359,8 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
                 dtype = None  # Let Unsloth choose the best dtype
             else:
                 # For non-quantized GPU training, use float16
-                import torch
+                # import torch
+
                 dtype = torch.float16
 
             logger.info(f"Loading model with Unsloth: dtype={dtype}, 4-bit={config.use_4bit}")
@@ -312,8 +373,8 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
             )
         else:
             # CPU: Use native Transformers + PEFT (Unsloth doesn't support CPU)
-            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-            import torch
+            # import torch
+            # from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
             logger.info(f"Loading model with Transformers: 4-bit={config.use_4bit}")
 
@@ -339,16 +400,35 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
             # Load tokenizer
             tokenizer = AutoTokenizer.from_pretrained(str(base_model_path))
 
+        correct_eos = "<|end_of_text|>"
+
         # Ensure tokenizer has pad token
-        if tokenizer.pad_token is None:
+        if tokenizer.eos_token == "<EOS_TOKEN>" or tokenizer.eos_token is None:
+            tokenizer.eos_token = correct_eos
+            logger.warning(f"Invalid eos_token '{tokenizer.eos_token}' detected. Enforcing '{correct_eos}'.")
+
+        if tokenizer.pad_token != tokenizer.eos_token:
+            logger.warning(
+                f"pad_token ('{tokenizer.pad_token}') is not eos_token ('{tokenizer.eos_token}'). "
+                f"Setting pad_token = eos_token for better compatibility."
+            )
             tokenizer.pad_token = tokenizer.eos_token
-            logger.info("Set pad_token to eos_token")
+            tokenizer.pad_token_id = tokenizer.eos_token_id
 
         # Log tokenizer special tokens for debugging
-        logger.info(f"Tokenizer special tokens:")
+        logger.info("Tokenizer special tokens:")
         logger.info(f"  EOS token: {tokenizer.eos_token} (id: {tokenizer.eos_token_id})")
         logger.info(f"  BOS token: {tokenizer.bos_token} (id: {getattr(tokenizer, 'bos_token_id', None)})")
         logger.info(f"  PAD token: {tokenizer.pad_token} (id: {getattr(tokenizer, 'pad_token_id', None)})")
+
+        # Keep dataset in text format
+        logger.info("Dataset kept in text format for SFTTrainer")
+
+        # Ensure the 'text' column exists and is properly formatted
+        for split_name in ds.keys():
+            sample = ds[split_name][0]
+            if "text" not in sample:
+                raise RuntimeError(f"Dataset split '{split_name}' missing 'text' column after validation")
 
         try:
             tokenizer.model_max_length = int(config.max_seq_length)
@@ -374,7 +454,7 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
         model = FastLanguageModel.get_peft_model(
             model,
             r=config.lora_r,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+            # target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
             lora_alpha=config.lora_alpha,
             lora_dropout=config.lora_dropout,
             bias="none",
@@ -387,7 +467,7 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
         model = FastLanguageModel.get_peft_model(
             model,
             r=config.lora_r,
-            target_modules=["q_proj", "v_proj"],
+            # target_modules=["q_proj", "v_proj"],
             lora_alpha=config.lora_alpha,
             lora_dropout=config.lora_dropout,
             bias="none",
@@ -406,8 +486,9 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         os.environ["HF_DATASETS_DISABLE_MULTIPROCESSING"] = "1"
         # Force datasets library to use single process
-        import datasets
-        datasets.disable_caching()
+        # import datasets
+
+        # datasets.disable_caching()
 
     # Define training arguments with optimizations
     sft_config = SFTConfig(
@@ -416,14 +497,17 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
         per_device_eval_batch_size=config.batch_size,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
         num_train_epochs=config.epochs,
+        max_steps=config.max_steps,  # Limit total steps if specified
         learning_rate=config.learning_rate,
         weight_decay=config.weight_decay,
         warmup_steps=config.warmup_steps,
         eval_strategy="steps" if "validation" in ds else "no",
-        eval_steps=max(50, steps_per_epoch // 2) if "validation" in ds else None,
-        save_strategy="epoch",
+        # Optimize eval frequency based on max_steps
+        eval_steps=_calculate_eval_steps(config.max_steps, total_steps) if "validation" in ds else None,
+        save_strategy="steps" if config.max_steps > 0 else "epoch",  # Save by steps if max_steps is set
+        save_steps=_calculate_save_steps(config.max_steps, total_steps) if config.max_steps > 0 else None,
         save_total_limit=2,
-        logging_steps=max(1, steps_per_epoch // 10),
+        logging_steps=25,
         logging_first_step=True,
         fp16=(hardware["device"] == "cuda" and not config.use_4bit),
         bf16=False,
@@ -434,13 +518,10 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
         dataloader_persistent_workers=False,
         remove_unused_columns=False,
         report_to=None,
-        dataset_text_field="text",
-        max_length=config.max_seq_length,
+        dataset_text_field="text",  # Tells SFTTrainer which column contains the raw text
+        max_seq_length=config.max_seq_length,  # Changed from max_length to max_seq_length
         dataset_num_proc=1,  # 1 means single process, not multiprocessing
         packing=False,
-        eval_packing=False,
-        eos_token=tokenizer.eos_token,
-        pad_token=tokenizer.pad_token,
     )
 
     # Debug: verify the config values
@@ -449,15 +530,27 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
     logger.info(f"Tokenizer eos_token: {tokenizer.eos_token}")
     logger.info(f"Tokenizer eos_token_id: {tokenizer.eos_token_id}")
 
+    # Log optimization settings
+    if "validation" in ds:
+        logger.info(f"Evaluation strategy: every {sft_config.eval_steps} steps")
+    if config.max_steps > 0:
+        logger.info(f"Checkpoint saving: every {sft_config.save_steps} steps")
+        logger.info(f"Training will complete after {config.max_steps} steps (not full epoch)")
+
     # Custom callback for progress reporting
     class ProgressCallback(TrainerCallback):
-        def __init__(self, total_steps, callback_fn):
-            self.total_steps = total_steps
+        def __init__(self, callback_fn):
+            self.total_steps = 0
             self.callback_fn = callback_fn
 
+        def on_step_begin(self, args, state, control, **kwargs):
+            # Captura o total_steps real (calculado pelo SFTTrainer)
+            if state.is_local_process_zero and self.total_steps == 0:
+                self.total_steps = state.max_steps
+                logger.info(f"ProgressCallback: Total steps set to {self.total_steps}")
+
         def on_step_end(self, args, state, control, **kwargs):
-            if self.callback_fn and state.global_step > 0:
-                # Progress from 30% to 90% during training
+            if self.callback_fn and state.global_step > 0 and self.total_steps > 0:
                 progress = 30.0 + (state.global_step / self.total_steps) * 60.0
                 self.callback_fn(f"Training: Step {state.global_step}/{self.total_steps}", min(progress, 90.0))
             return control
@@ -471,23 +564,24 @@ def train_lora_model(config: TrainingConfig, progress_callback: Optional[Callabl
 
     callbacks = []
     if progress_callback:
-        callbacks.append(ProgressCallback(total_steps, progress_callback))
+        callbacks.append(ProgressCallback(progress_callback))
 
     try:
         # On Windows, monkey-patch the dataset.map to remove num_proc parameter
         # This prevents the subprocess crash with Unsloth's compiled modules
         if platform.system() == "Windows":
             logger.info("Applying Windows-specific dataset.map patch to prevent multiprocessing")
-            from datasets import Dataset
+            # from datasets import Dataset
+
             original_map = Dataset.map
-            
+
             def patched_map(self, *args, **kwargs):
                 """Remove num_proc from kwargs to prevent multiprocessing on Windows"""
-                if 'num_proc' in kwargs:
+                if "num_proc" in kwargs:
                     logger.debug(f"Removing num_proc={kwargs['num_proc']} from dataset.map call")
-                    del kwargs['num_proc']
+                    del kwargs["num_proc"]
                 return original_map(self, *args, **kwargs)
-            
+
             Dataset.map = patched_map
 
         trainer = SFTTrainer(

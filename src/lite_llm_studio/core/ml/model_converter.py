@@ -9,7 +9,6 @@ Merges LoRA adapters with base model and converts to standalone GGUF.
 import logging
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("app.ml.converter")
 
@@ -33,9 +32,9 @@ def merge_lora_to_base_model(
         RuntimeError: If merge fails
     """
     try:
+        import torch
         from peft import PeftModel
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        import torch
 
         logger.info("Merging LoRA adapters into base model...")
         logger.info(f"  Base model: {base_model_path}")
@@ -121,13 +120,14 @@ def convert_hf_to_gguf(
         quant_type = quantization.lower()
         output_file = output_dir / f"model-{quant_type}.gguf"
 
-        logger.info(f"Converting HuggingFace model to GGUF...")
+        logger.info("Converting HuggingFace model to GGUF...")
         logger.info(f"  Model: {model_path}")
         logger.info(f"  Output: {output_file}")
         logger.info(f"  Quantization: {quant_type}")
 
         # Get Python executable
-        import sys, os
+        import os
+        import sys
 
         python_exe = sys.executable
 
@@ -175,9 +175,9 @@ def convert_hf_to_gguf(
 def convert_finetuned_model_to_gguf(
     adapter_path: str,
     base_model_path: str,
-    output_name: Optional[str] = None,
+    output_name: str | None = None,
     quantization: str = "f16",
-    models_dir: Optional[str] = None,
+    models_dir: str | None = None,
 ) -> dict[str, str]:
     """Convert fine-tuned LoRA model to standalone GGUF format.
 
@@ -214,7 +214,7 @@ def convert_finetuned_model_to_gguf(
 
     output_base.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Converting fine-tuned model to standalone GGUF")
+    logger.info("Converting fine-tuned model to standalone GGUF")
     logger.info(f"  Adapter: {adapter_path}")
     logger.info(f"  Base model: {base_model_path}")
     logger.info(f"  Quantization: {quantization}")
@@ -256,38 +256,38 @@ def convert_finetuned_model_to_gguf(
 
         with open(readme_path, "w", encoding="utf-8") as f:
             f.write(f"# {model_name}\n\n")
-            f.write(f"Fine-tuned model converted to standalone GGUF format.\n\n")
-            f.write(f"## 📁 Files\n\n")
+            f.write("Fine-tuned model converted to standalone GGUF format.\n\n")
+            f.write("## 📁 Files\n\n")
             f.write(f"- `{gguf_filename}`: Standalone GGUF model ({quantization})\n")
-            f.write(f"- `merged_model/`: Intermediate merged HuggingFace model\n")
-            f.write(f"- Compatible with llama.cpp, Ollama, LM Studio, etc.\n\n")
-            f.write(f"## 📊 Model Information\n\n")
+            f.write("- `merged_model/`: Intermediate merged HuggingFace model\n")
+            f.write("- Compatible with llama.cpp, Ollama, LM Studio, etc.\n\n")
+            f.write("## 📊 Model Information\n\n")
             f.write(f"- **Base Model**: `{base_model_path}`\n")
             f.write(f"- **LoRA Adapter**: `{adapter_path}`\n")
             f.write(f"- **Quantization**: {quantization}\n")
-            f.write(f"- **Conversion**: LoRA merge + HuggingFace to GGUF\n\n")
-            f.write(f"## 🚀 Usage\n\n")
-            f.write(f"This is a **standalone model** - no need for base model or adapter!\n\n")
-            f.write(f"### llama.cpp\n")
-            f.write(f"```bash\n")
+            f.write("- **Conversion**: LoRA merge + HuggingFace to GGUF\n\n")
+            f.write("## 🚀 Usage\n\n")
+            f.write("This is a **standalone model** - no need for base model or adapter!\n\n")
+            f.write("### llama.cpp\n")
+            f.write("```bash\n")
             f.write(f'./llama-cli -m {gguf_filename} -p "Your prompt here"\n')
-            f.write(f"```\n\n")
-            f.write(f"### Ollama\n")
-            f.write(f"```bash\n")
-            f.write(f"# Create Modelfile\n")
+            f.write("```\n\n")
+            f.write("### Ollama\n")
+            f.write("```bash\n")
+            f.write("# Create Modelfile\n")
             f.write(f"echo 'FROM {gguf_filename}' > Modelfile\n\n")
-            f.write(f"# Import model\n")
+            f.write("# Import model\n")
             f.write(f"ollama create {model_name} -f Modelfile\n\n")
-            f.write(f"# Run\n")
+            f.write("# Run\n")
             f.write(f"ollama run {model_name}\n")
-            f.write(f"```\n\n")
-            f.write(f"### Python (llama-cpp-python)\n")
-            f.write(f"```python\n")
-            f.write(f"from llama_cpp import Llama\n\n")
+            f.write("```\n\n")
+            f.write("### Python (llama-cpp-python)\n")
+            f.write("```python\n")
+            f.write("from llama_cpp import Llama\n\n")
             f.write(f'model = Llama(model_path="{gguf_filename}")\n')
-            f.write(f'response = model("Your prompt", max_tokens=256)\n')
-            f.write(f"print(response['choices'][0]['text'])\n")
-            f.write(f"```\n")
+            f.write('response = model("Your prompt", max_tokens=256)\n')
+            f.write("print(response['choices'][0]['text'])\n")
+            f.write("```\n")
 
         logger.info(f"📝 Created README at: {readme_path}")
 

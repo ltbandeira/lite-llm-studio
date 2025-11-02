@@ -14,7 +14,7 @@ from typing import Any
 import streamlit as st
 
 from lite_llm_studio.core.configuration.data_schema import ChunkingStrategy, DataProcessingConfig
-from lite_llm_studio.core.configuration.desktop_app_config import get_user_data_directory, get_default_models_directory
+from lite_llm_studio.core.configuration.desktop_app_config import get_default_models_directory, get_user_data_directory
 
 from ..icons import ICONS
 
@@ -254,11 +254,6 @@ class DataPreparationStep(PipelineStep):
                 "dataset_description": dataset_description,
             }
 
-        # Create a placeholder container for processing status
-        # This reserves space and prevents UI misalignment during processing
-        st.markdown("---")
-        st.session_state.dp_status_container = st.empty()
-
     def execute(self, context: dict[str, Any]) -> dict[str, Any]:
         """Execute backend logic for data preparation."""
         self.logger.info("Executing data preparation step")
@@ -303,28 +298,14 @@ class DataPreparationStep(PipelineStep):
 
             orchestrator = get_orchestrator()
 
-            # Use status container if available, otherwise fallback to spinner
-            status_container = st.session_state.get("dp_status_container")
-
-            if status_container:
-                # Clear the container and show processing status
-                status_container.empty()
-
-                # Step 1: Process documents
-                with status_container.container():
-                    st.info("Processing documents...")
-                    job_result = orchestrator.execute_document_processing(processing_config)
-
-                # Update to show success
-                status_container.empty()
-                with status_container.container():
-                    st.success("Documents processed!")
-            else:
-                with st.spinner("Processing documents..."):
-                    job_result = orchestrator.execute_document_processing(processing_config)
+            # Process documents
+            self.logger.info("Starting document processing...")
+            job_result = orchestrator.execute_document_processing(processing_config)
 
             if not job_result:
                 raise Exception("Document processing failed")
+
+            self.logger.info("Document processing completed")
 
             # Collect chunk files
             chunks_files: list[str] = []
@@ -343,20 +324,8 @@ class DataPreparationStep(PipelineStep):
             dataset_name = config.get("dataset_name", "my_training_dataset")
             dataset_description = config.get("dataset_description", "")
 
-            if status_container:
-                # Step 2: Create dataset
-                status_container.empty()
-                with status_container.container():
-                    st.info("Creating dataset...")
-                    dataset_result = orchestrator.create_dataset(chunks_files, str(datasets_dir), dataset_name, dataset_description)
-
-                # Update to show final success
-                status_container.empty()
-                with status_container.container():
-                    st.success("Dataset created successfully!")
-            else:
-                with st.spinner("Creating dataset..."):
-                    dataset_result = orchestrator.create_dataset(chunks_files, str(datasets_dir), dataset_name, dataset_description)
+            self.logger.info(f"Creating dataset: {dataset_name}")
+            dataset_result = orchestrator.create_dataset(chunks_files, str(datasets_dir), dataset_name, dataset_description)
 
             if not dataset_result:
                 raise Exception("Dataset creation failed")
@@ -442,15 +411,7 @@ class TrainingStep(PipelineStep):
     """ """
 
     def render_ui(self) -> None:
-        """Render the UI for the training step.
-
-        This step allows the user to select a dataset (produced in the data
-        preparation step), choose a base model from the local models
-        directory, configure a handful of training hyperparameters, and
-        specify an output name for the fine‑tuned model. The selections
-        are stored in ``st.session_state`` so they can be retrieved by
-        the ``execute`` method when the user clicks "Complete Step".
-        """
+        """Render the UI for the training step."""
         # Step header
         st.markdown(
             f"""
@@ -538,23 +499,13 @@ class TrainingStep(PipelineStep):
                 key="tp_model_select",
             )
         else:
-            st.error(f"⚠️ **No compatible models found in**: `{models_root}`")
+            st.error(f"**No compatible models found in**: `{models_root}`")
 
             # Show GGUF models if found, but explain they're incompatible
             if gguf_models:
                 st.warning(
                     f"""
-                    **❌ Modelos GGUF detectados (não compatíveis com fine-tuning):**
-                    
-                    {', '.join(gguf_models)}
-                    
-                    **Modelos GGUF** são otimizados para inferência com llama.cpp, mas **não podem ser usados 
-                    para fine-tuning**. Você precisa de modelos no formato PyTorch/Transformers.
-                    
-                    **Fluxo recomendado:**
-                    1. Baixe modelo HuggingFace (formato PyTorch)
-                    2. Faça fine-tuning aqui no LiteLLM Studio
-                    3. (Opcional) Converta para GGUF depois para uso com llama.cpp
+                    **Modelos GGUF detectados não compatíveis com fine-tuning:**
                     """
                 )
 
@@ -562,60 +513,14 @@ class TrainingStep(PipelineStep):
             if meta_native_models:
                 st.warning(
                     f"""
-                    **❌ Modelos no formato Meta nativo detectados (não compatíveis):**
-                    
-                    {', '.join(meta_native_models)}
-                    
-                    Estes modelos usam o formato original do Meta/Facebook (`consolidated.pth` + `params.json`), 
-                    que não é compatível com o Transformers/Unsloth.
-                    
-                    **Solução:** Baixe a versão HuggingFace destes modelos:
-                    - Para Llama-3.2-3B: `meta-llama/Llama-3.2-3B` ou `meta-llama/Llama-3.2-3B-Instruct`
-                    - Verifique se o diretório contém `config.json` e `model.safetensors`
+                    **Modelos no formato Meta nativo detectados (não compatíveis):**
                     """
                 )
-
-            st.info(
-                """
-                **Como adicionar modelos:**
-                
-                1. **Baixe um modelo base** (ex: Llama-2, Mistral, Phi) de um dos seguintes locais:
-                   - 🤗 [HuggingFace Models](https://huggingface.co/models)
-                   - 📦 [TheBloke Quantized Models](https://huggingface.co/TheBloke)
-                
-                2. **Extraia o modelo** para o diretório de modelos:
-                   ```
-                   {models_root}\\nome-do-modelo\\
-                   ```
-                
-                3. **Estrutura esperada:**
-                   ```
-                   {models_root}\\
-                   └── llama-2-7b\\
-                       ├── config.json
-                       ├── pytorch_model.bin (ou model.safetensors)
-                       ├── tokenizer.json
-                       └── outros arquivos...
-                   ```
-                
-                4. **Exemplos de comandos** (usando git-lfs):
-                   ```powershell
-                   cd {models_root}
-                   git clone https://huggingface.co/meta-llama/Llama-2-7b-hf
-                   ```
-                   
-                **Modelos recomendados para começar:**
-                - `TinyLlama-1.1B` (mais leve, ~2GB)
-                - `Phi-2` (~5GB, ótimo para GPUs modestas)
-                - `Mistral-7B` (~14GB, muito bom)
-                - `Llama-2-7B` (~13GB, popular)
-                """
-            )
 
             # Button to open models directory in Windows Explorer
             col_btn1, col_btn2 = st.columns([1, 3])
             with col_btn1:
-                if st.button("📂 Abrir Pasta de Modelos", key="open_models_dir"):
+                if st.button("Abrir Pasta de Modelos", key="open_models_dir"):
                     import subprocess
 
                     # Create directory if it doesn't exist
@@ -624,7 +529,7 @@ class TrainingStep(PipelineStep):
                     subprocess.Popen(f'explorer "{models_root}"')
                     st.success(f"Abrindo: {models_root}")
             with col_btn2:
-                if st.button("🔄 Recarregar Lista de Modelos", key="reload_models"):
+                if st.button("Recarregar Lista de Modelos", key="reload_models"):
                     st.rerun()
 
         if selected_model:
@@ -734,26 +639,9 @@ class TrainingStep(PipelineStep):
         )
         if output_name:
             st.session_state.tp_output_model_name = output_name.strip()
-        # Reserve a container for training status messages
-        st.session_state.tp_train_status = st.empty()
 
     def execute(self, context: dict[str, Any]) -> dict[str, Any]:
-        """Run the fine‑tuning procedure on the selected dataset and model.
-
-        This method reads the configuration stored in ``st.session_state`` during
-        ``render_ui`` (dataset selection, model selection, hyperparameters
-        and output name), constructs a training configuration dictionary,
-        and invokes the orchestrator's training function. It displays a
-        progress message using Streamlit widgets and returns the path of
-        the trained model in the shared context.
-
-        Args:
-            context: Shared pipeline context (unused here).
-
-        Returns:
-            dict: Dictionary containing the key ``trained_model`` with the
-                  path to the saved fine‑tuned model.
-        """
+        """Run the fine‑tuning procedure on the selected dataset and model."""
         self.logger.info("Executing training step")
         # Retrieve selections from session state
         dataset_dir = st.session_state.get("tp_selected_dataset")
@@ -798,25 +686,17 @@ class TrainingStep(PipelineStep):
         from lite_llm_studio.app.app import get_orchestrator
 
         orchestrator = get_orchestrator()
-        status_placeholder = st.session_state.get("tp_train_status")
-        if status_placeholder:
-            status_placeholder.empty()
-            with status_placeholder.container():
-                st.info("Training model... This may take a while.")
-                result = orchestrator.execute_training(training_cfg)
-        else:
-            with st.spinner("Training model..."):
-                result = orchestrator.execute_training(training_cfg)
+
+        # Training will be executed (Streamlit will show processing state automatically)
+        self.logger.info("Starting model training...")
+        result = orchestrator.execute_training(training_cfg)
+
         if not result or not result.get("trained_model_path"):
             raise RuntimeError("Model training failed or returned no output.")
+
         trained_model_path = result["trained_model_path"]
-        # Display success message
-        if status_placeholder:
-            status_placeholder.empty()
-            with status_placeholder.container():
-                st.success(f"Training completed! Model saved at: {trained_model_path}")
-        else:
-            st.success(f"Training completed! Model saved at: {trained_model_path}")
+        self.logger.info(f"Training completed successfully: {trained_model_path}")
+
         # Update context
         return {"trained_model": trained_model_path}
 
@@ -1088,33 +968,34 @@ def _render_step_panel() -> None:
             st.session_state.tp_processing = True
             st.rerun()
 
-        # Execute processing if state is set (on next render)
-        if is_processing and not is_completed:
-            # Execute step backend logic
-            try:
-                result = pipeline.execute_step(i, st.session_state.tp_context)
-                # Update context with step results
-                st.session_state.tp_context.update(result)
-                st.session_state.tp_completed[i] = True
-
-                # Unlock next step if any
-                if i + 1 < pipeline.get_step_count():
-                    st.session_state.tp_unlocked[i + 1] = True
-                    st.session_state.tp_current_step = i + 1
-
-                st.success(f"{step.config.label} completed successfully!")
-            except Exception as e:
-                st.error(f"Error completing step: {str(e)}")
-            finally:
-                # Reset processing state
-                st.session_state.tp_processing = False
-                st.rerun()
-
     with right:
         can_go_next = (i < pipeline.get_step_count() - 1) and st.session_state.tp_completed[i] and st.session_state.tp_unlocked[i + 1]
         # Disable Next button if can't go next or processing
         if st.button("Next 🡢", key="tp_nav_next", disabled=(not can_go_next or is_processing), use_container_width=True):
             st.session_state.tp_current_step = min(pipeline.get_step_count() - 1, i + 1)
+            st.rerun()
+
+    # Execute processing OUTSIDE the columns to avoid breaking alignment
+    # This happens on the render after the button click
+    if is_processing and not st.session_state.tp_completed[i]:
+        # Execute step backend logic
+        try:
+            result = pipeline.execute_step(i, st.session_state.tp_context)
+            # Update context with step results
+            st.session_state.tp_context.update(result)
+            st.session_state.tp_completed[i] = True
+
+            # Unlock next step if any
+            if i + 1 < pipeline.get_step_count():
+                st.session_state.tp_unlocked[i + 1] = True
+                st.session_state.tp_current_step = i + 1
+
+            st.success(f"{step.config.label} completed successfully!")
+        except Exception as e:
+            st.error(f"Error completing step: {str(e)}")
+        finally:
+            # Reset processing state
+            st.session_state.tp_processing = False
             st.rerun()
 
     st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
@@ -1154,8 +1035,8 @@ def _render_step_panel() -> None:
             if st.button("Convert to GGUF", key="tp_convert_gguf", type="primary"):
                 try:
                     with st.spinner("Converting model to GGUF... This may take a few minutes."):
-                        from lite_llm_studio.core.ml.model_converter import convert_finetuned_model_to_gguf
                         from lite_llm_studio.core.configuration import get_default_models_directory
+                        from lite_llm_studio.core.ml.model_converter import convert_finetuned_model_to_gguf
 
                         # Get the trained model path
                         final_result = st.session_state.get("tp_result_model")
@@ -1175,7 +1056,7 @@ def _render_step_panel() -> None:
                             models_dir=models_dir,  # Save GGUF in models/ directory
                         )
 
-                        st.success(f"GGUF model conversion completed successfully!")
+                        st.success("GGUF model conversion completed successfully!")
 
                         # Show the paths in a more organized way
                         st.markdown("#### Generated Files")
@@ -1183,23 +1064,7 @@ def _render_step_panel() -> None:
                         # GGUF model (main output)
                         st.markdown("**GGUF Model (ready to use):**")
                         st.code(result["gguf_model"], language=None)
-                        st.caption(f"This is a **complete standalone model** - ready to use!")
-
-                        # Show merged model path (intermediate)
-                        # with st.expander("ℹ️ View intermediate model (PyTorch merged)"):
-                        #     st.code(result["merged_model"], language=None)
-                        #     st.caption("This is the PyTorch model with merged LoRA adapters (used as intermediate)")
-
-                        # st.success(
-                        #     "**✅ GGUF Standalone Model Created!**\n\n"
-                        #     "This GGUF model contains the base model + merged LoRA adaptations.\n"
-                        #     "You can use it directly without needing the base model or separate adapter!\n\n"
-                        #     "**Como usar:**\n"
-                        #     '- **llama.cpp**: `./llama-cli -m model-f16.gguf -p "prompt"`\n'
-                        #     "- **Ollama**: Importe o arquivo .gguf no Ollama\n"
-                        #     "- **LM Studio**: Arraste o arquivo .gguf para LM Studio\n"
-                        #     "- **Python**: Use com llama-cpp-python diretamente"
-                        # )
+                        st.caption("This is a **complete standalone model** - ready to use!")
 
                 except Exception as e:
                     st.error(f"Conversion Error: {str(e)}")
