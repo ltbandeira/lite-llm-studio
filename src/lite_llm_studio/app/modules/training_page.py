@@ -126,6 +126,24 @@ class DataPreparationStep(PipelineStep):
         # File upload section
         st.markdown("#### Upload Documents")
 
+        # Hide uploaded files area using custom CSS
+        st.markdown(
+            """
+            <style>
+            [data-testid="stFileUploader"] section:not([data-testid="stFileUploaderDropzone"]) {
+                display: none !important;
+            }
+            [data-testid="stFileUploader"] > section + section {
+                display: none !important;
+            }
+            [data-testid="stFileUploader"] ul {
+                display: none !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         uploaded_files = st.file_uploader(
             "Choose PDF files",
             type=["pdf"],
@@ -147,19 +165,17 @@ class DataPreparationStep(PipelineStep):
         col1, col2 = st.columns(2)
 
         with col1:
-            # Create capitalized display names for chunking strategies
+            # Docling native chunking strategies
             strategy_options = {
                 "hybrid": "Hybrid (Recommended)",
                 "hierarchical": "Hierarchical",
-                "paragraph": "Paragraph",
-                "fixed_size": "Fixed Size",
             }
 
             chunking_strategy_display = st.selectbox(
                 "Chunking Strategy",
                 options=list(strategy_options.values()),
                 index=0,  # Default to "Hybrid"
-                help="Hybrid: Advanced tokenization-aware chunking that preserves document structure and respects token limits.Best for fine-tuning.",
+                help="Hybrid: Advanced tokenization-aware chunking that preserves document structure and respects token limits. Hierarchical: One chunk per document element, preserving document hierarchy.",
                 key="dp_chunking_strategy_display",
             )
 
@@ -181,10 +197,10 @@ class DataPreparationStep(PipelineStep):
                 max_tokens = st.slider(
                     "Max Tokens per Chunk",
                     min_value=64,
-                    max_value=1024,
+                    max_value=8192,
                     value=512,
                     step=64,
-                    help="Maximum tokens per chunk (for Hybrid/Hierarchical strategies)",
+                    help="Maximum tokens per chunk for Docling chunkers",
                     key="dp_max_tokens",
                 )
 
@@ -194,32 +210,6 @@ class DataPreparationStep(PipelineStep):
                     value=True,
                     help="Merge undersized chunks with same headings (Hybrid strategy only)",
                     key="dp_merge_peers",
-                )
-
-            st.markdown("**Legacy Chunking Parameters** (for Paragraph/Fixed Size strategies)")
-
-            col_leg1, col_leg2 = st.columns(2)
-
-            with col_leg1:
-                chunk_size = st.slider(
-                    "Chunk Size (words)",
-                    min_value=128,
-                    max_value=4096,
-                    value=512,
-                    step=128,
-                    help="Size of chunks in words (Fixed Size strategy only)",
-                    key="dp_chunk_size",
-                )
-
-            with col_leg2:
-                chunk_overlap = st.slider(
-                    "Chunk Overlap (words)",
-                    min_value=0,
-                    max_value=512,
-                    value=50,
-                    step=10,
-                    help="Overlap between chunks in words (Fixed Size strategy only)",
-                    key="dp_chunk_overlap",
                 )
 
             st.markdown("**Document Processing**")
@@ -232,7 +222,7 @@ class DataPreparationStep(PipelineStep):
         )
 
         dataset_description = st.text_area(
-            "Dataset Description (optional)",
+            "Dataset Description",
             value="",
             help="Optional description of the dataset",
             key="dp_dataset_description",
@@ -246,8 +236,6 @@ class DataPreparationStep(PipelineStep):
                 "chunking_strategy": chunking_strategy,
                 "extract_tables": extract_tables,
                 "ocr_enabled": ocr_enabled,
-                "chunk_size": chunk_size,
-                "chunk_overlap": chunk_overlap,
                 "max_tokens": max_tokens,
                 "merge_peers": merge_peers,
                 "dataset_name": dataset_name,
@@ -281,14 +269,13 @@ class DataPreparationStep(PipelineStep):
                 self.logger.info(f"Saved uploaded file: {file.name}")
 
             # Format is always JSONL for causal language modeling
+            # Using Docling native chunking strategies only (Hybrid and Hierarchical)
             processing_config = DataProcessingConfig(
                 input_files=saved_files,
                 output_dir=str(processed_dir),
                 extract_tables=config.get("extract_tables", True),
                 ocr_enabled=config.get("ocr_enabled", True),
                 chunking_strategy=ChunkingStrategy(config.get("chunking_strategy", "hybrid")),
-                chunk_size=config.get("chunk_size", 512),
-                chunk_overlap=config.get("chunk_overlap", 50),
                 max_tokens=config.get("max_tokens", 512),
                 merge_peers=config.get("merge_peers", True),
             )
@@ -926,34 +913,100 @@ def _render_step_panel() -> None:
     pipeline = _get_pipeline()
     i = st.session_state.tp_current_step
     step = pipeline.get_step(i)
+    step_key = step.config.key
 
-    # Render the step-specific UI
+    # chaves usadas pelo progresso do treinamento
+    if "tp_training_progress" not in st.session_state:
+        st.session_state.tp_training_progress = 0.0
+    if "tp_training_progress_text" not in st.session_state:
+        st.session_state.tp_training_progress_text = ""
+
+    # Render do conteúdo do passo
     step.render_ui()
+    st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
 
-    st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
-
-    # Action row: Complete / Back / Next
-    left, mid, right = st.columns([1, 2, 1], vertical_alignment="center")
-
-    # Check if currently processing
+    # Estado de processamento
     is_processing = st.session_state.get("tp_processing", False)
 
+    # SLOT para CSS do footer (permite esconder/mostrar sem quebrar o layout)
+    footer_css_slot = st.empty()
+
+    # SLOT para barra de progresso (atualizada ao vivo via callback)
+    progress_slot = st.empty()
+    progress_widget = None  # será criado quando necessário
+
+    # Aviso de processamento e controles visuais
+    if is_processing:
+        # Esconde o footer APENAS enquanto processa (sem reescrever o layout original)
+        if step_key in ("data_prep", "training"):
+            footer_css_slot.markdown(
+                """
+                <style>
+                    [data-testid="stFooter"], footer, .app-footer { display: none !important; }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # Mensagem do passo
+        step_messages = {
+            "model_reco": "",
+            "data_prep": "Processing documents and creating dataset...",
+            "dry_run": "",
+            "training": "Training model...",
+        }
+        processing_msg = step_messages.get(step_key, "Processing... Please wait.")
+
+        # Banner “loading”
+        st.markdown(
+            f"""
+            <div style="
+                background: linear-gradient(90deg, rgba(37,99,235,.10) 0%, rgba(37,99,235,.20) 50%, rgba(37,99,235,.10) 100%);
+                border: 1px solid rgba(37,99,235,.30);
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 16px;
+                text-align: center;
+            ">
+                <div style="
+                    display:inline-block;width:16px;height:16px;border:2px solid rgba(37,99,235,.30);
+                    border-top:2px solid #2563eb;border-radius:50%;animation:spin 1s linear infinite;
+                    margin-right:12px;vertical-align:middle;
+                "></div>
+                <span style="font-weight:600;color:#2563eb;vertical-align:middle;">{processing_msg}</span>
+            </div>
+            <style>
+                @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Barra de progresso VIVA apenas no passo de treinamento
+        if step_key == "training":
+            current_val = float(st.session_state.get("tp_training_progress", 0.0))
+            current_val = max(0.0, min(1.0, current_val))
+            current_text = st.session_state.get("tp_training_progress_text") or f"{int(current_val * 100)}%"
+            progress_widget = progress_slot.progress(current_val, text=current_text)
+            st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
+    else:
+        # Remove qualquer CSS injetado para o footer (restaura o layout original automaticamente)
+        footer_css_slot.empty()
+        # Garante que o slot de progresso esteja limpo quando não estiver processando
+        progress_slot.empty()
+
+    # Navegação
+    left, mid, right = st.columns([1, 2, 1], vertical_alignment="center")
     with left:
-        # Disable Back button if at first step or processing
         if st.button("🡠 Back", key="tp_nav_back", disabled=(i == 0 or is_processing), use_container_width=True):
             st.session_state.tp_current_step = max(0, i - 1)
             st.rerun()
 
     with mid:
         is_completed = st.session_state.tp_completed[i]
-
-        # Check if step can be completed
         can_complete, validation_msg = step.can_complete(st.session_state.tp_context)
-
         completed_label = "✓ Completed" if is_completed else "Complete Step"
-        # Disable Complete button if already completed, can't complete, or processing
         button_disabled = is_completed or not can_complete or is_processing
-
         complete_clicked = st.button(
             completed_label,
             key=f"tp_complete_{i}",
@@ -962,30 +1015,50 @@ def _render_step_panel() -> None:
             disabled=button_disabled,
             help=validation_msg if not can_complete else None,
         )
-
         if complete_clicked and not is_processing:
-            # Set processing state immediately and rerun to disable buttons
             st.session_state.tp_processing = True
             st.rerun()
 
     with right:
         can_go_next = (i < pipeline.get_step_count() - 1) and st.session_state.tp_completed[i] and st.session_state.tp_unlocked[i + 1]
-        # Disable Next button if can't go next or processing
         if st.button("Next 🡢", key="tp_nav_next", disabled=(not can_go_next or is_processing), use_container_width=True):
             st.session_state.tp_current_step = min(pipeline.get_step_count() - 1, i + 1)
             st.rerun()
 
-    # Execute processing OUTSIDE the columns to avoid breaking alignment
-    # This happens on the render after the button click
+    # Execução do passo (acontece após o clique em "Complete Step")
     if is_processing and not st.session_state.tp_completed[i]:
-        # Execute step backend logic
         try:
+            # Passo de treinamento: registra callback que atualiza a barra em tempo real
+            if step_key == "training":
+                from lite_llm_studio.app.app import get_orchestrator
+                orchestrator = get_orchestrator()
+
+                def _progress_cb(msg: str, percent: float | None) -> None:
+                    # normaliza (aceita 0–1 ou 0–100)
+                    if percent is None:
+                        p = st.session_state.get("tp_training_progress", 0.0)
+                    else:
+                        p = float(percent)
+                        if p > 1.0:
+                            p = p / 100.0
+                        p = max(0.0, min(1.0, p))
+
+                    text = msg or f"{int(p * 100)}%"
+                    # mantém no estado (para o próximo rerender)…
+                    st.session_state.tp_training_progress = p
+                    st.session_state.tp_training_progress_text = text
+                    # …e atualiza o widget imediatamente
+                    if progress_widget is not None:
+                        progress_widget.progress(p, text=text)
+
+                orchestrator.set_training_progress_callback(_progress_cb)
+
+            # Executa o backend do passo
             result = pipeline.execute_step(i, st.session_state.tp_context)
-            # Update context with step results
             st.session_state.tp_context.update(result)
             st.session_state.tp_completed[i] = True
 
-            # Unlock next step if any
+            # Desbloqueia próximo passo
             if i + 1 < pipeline.get_step_count():
                 st.session_state.tp_unlocked[i + 1] = True
                 st.session_state.tp_current_step = i + 1
@@ -994,34 +1067,36 @@ def _render_step_panel() -> None:
         except Exception as e:
             st.error(f"Error completing step: {str(e)}")
         finally:
-            # Reset processing state
             st.session_state.tp_processing = False
+            if step_key == "training":
+                st.session_state.tp_training_progress = 1.0
+                if not st.session_state.get("tp_training_progress_text"):
+                    st.session_state.tp_training_progress_text = "Training finished."
+                if progress_widget is not None:
+                    progress_widget.progress(1.0, text=st.session_state.tp_training_progress_text)
             st.rerun()
 
     st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
 
-    # Finalization
+    # Finalização (GGUF etc.) – inalterado
     if i == pipeline.get_step_count() - 1:
         finished = all(st.session_state.tp_completed)
         if st.button("Finish Pipeline", key="tp_finish", disabled=not finished, use_container_width=True):
             try:
-                # Save final results
                 final_result = st.session_state.tp_context.get("trained_model")
                 if final_result:
                     st.session_state.tp_result_model = final_result
-                    st.session_state.tp_pipeline_finished = True  # Mark pipeline as finished
+                    st.session_state.tp_pipeline_finished = True
                     st.success("Pipeline completed successfully! The trained model is now available.")
-                    st.rerun()  # Rerun to show GGUF conversion section
+                    st.rerun()
                 else:
                     st.warning("Pipeline completed but no trained model was found in context.")
             except Exception as e:
                 st.error(f"Error finishing pipeline: {str(e)}")
 
-        # Show GGUF conversion section if pipeline has been finished
         if st.session_state.get("tp_pipeline_finished", False) and st.session_state.get("tp_result_model"):
             st.markdown("---")
             st.markdown("#### Convert to GGUF")
-
             col1, col2 = st.columns(2)
             with col1:
                 quantization = st.selectbox(
@@ -1031,41 +1106,26 @@ def _render_step_panel() -> None:
                     help="f16: Recommended (16-bit float), q8_0: Compressed (8-bit), f32: No compression, auto: Detects automatically",
                     key="tp_gguf_quant",
                 )
-
             if st.button("Convert to GGUF", key="tp_convert_gguf", type="primary"):
                 try:
-                    with st.spinner("Converting model to GGUF... This may take a few minutes."):
+                    with st.spinner("Converting model to GGUF..."):
                         from lite_llm_studio.core.configuration import get_default_models_directory
                         from lite_llm_studio.core.ml.model_converter import convert_finetuned_model_to_gguf
-
-                        # Get the trained model path
                         final_result = st.session_state.get("tp_result_model")
-
-                        # Get base model path from training config
                         base_model = st.session_state.get("tp_selected_model")
-
-                        # Get models directory to save GGUF files
                         models_dir = str(get_default_models_directory())
-
                         logger.info(f"Converting model to GGUF: adapter={final_result}, base={base_model}, quant={quantization}")
-
                         result = convert_finetuned_model_to_gguf(
                             adapter_path=final_result,
                             base_model_path=base_model,
                             quantization=quantization,
-                            models_dir=models_dir,  # Save GGUF in models/ directory
+                            models_dir=models_dir,
                         )
-
                         st.success("GGUF model conversion completed successfully!")
-
-                        # Show the paths in a more organized way
                         st.markdown("#### Generated Files")
-
-                        # GGUF model (main output)
                         st.markdown("**GGUF Model (ready to use):**")
                         st.code(result["gguf_model"], language=None)
                         st.caption("This is a **complete standalone model** - ready to use!")
-
                 except Exception as e:
                     st.error(f"Conversion Error: {str(e)}")
                     logger.error(f"GGUF conversion error: {e}", exc_info=True)

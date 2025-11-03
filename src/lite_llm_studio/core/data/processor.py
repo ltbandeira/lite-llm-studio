@@ -314,7 +314,7 @@ class DocumentProcessor:
 
         Args:
             docling_doc: The DoclingDocument object from Docling converter.
-            text_content: Plain text content for legacy strategies.
+            text_content: Plain text content for fallback mechanisms.
             config: Processing configuration.
 
         Returns:
@@ -328,14 +328,9 @@ class DocumentProcessor:
         elif config.chunking_strategy == ChunkingStrategy.HIERARCHICAL:
             return self._chunk_with_hierarchical(docling_doc, config)
 
-        elif config.chunking_strategy == ChunkingStrategy.PARAGRAPH:
-            return self._chunk_by_paragraph(text_content)
-
-        elif config.chunking_strategy == ChunkingStrategy.FIXED_SIZE:
-            return self._chunk_by_fixed_size(text_content, config)
-
         else:
-            self.logger.warning(f"Unknown chunking strategy: {config.chunking_strategy}, using paragraph")
+            # Fallback to paragraph chunking for unknown strategies
+            self.logger.warning(f"Unknown chunking strategy: {config.chunking_strategy}, using paragraph fallback")
             return self._chunk_by_paragraph(text_content)
 
     def _chunk_with_hybrid(self, docling_doc, config: DataProcessingConfig) -> list[dict]:
@@ -464,7 +459,10 @@ class DocumentProcessor:
 
     def _chunk_by_paragraph(self, content: str) -> list[dict]:
         """
-        Legacy: Split content by paragraphs.
+        Internal fallback: Split content by paragraphs.
+
+        This method is kept as an emergency fallback when Docling
+        chunkers fail. Not exposed in the public API.
 
         Args:
             content: Text content to chunk.
@@ -495,7 +493,10 @@ class DocumentProcessor:
 
     def _chunk_by_fixed_size(self, content: str, config: DataProcessingConfig) -> list[dict]:
         """
-        Legacy: Simple word-based chunking with fixed size and overlap.
+        Internal fallback: Simple word-based chunking with fixed size and overlap.
+
+        This method is kept for internal use only, not exposed in the public API.
+        Uses legacy chunk_size and chunk_overlap parameters if needed.
 
         Args:
             content: Text content to chunk.

@@ -16,12 +16,14 @@ from .base_config import BaseConfigModel
 
 
 class ChunkingStrategy(str, Enum):
-    """Strategies for chunking documents."""
+    """Strategies for chunking documents.
 
-    HYBRID = "hybrid"  # Docling's HybridChunker - hierarchical + tokenization-aware
-    HIERARCHICAL = "hierarchical"  # Docling's HierarchicalChunker - one chunk per document element
-    FIXED_SIZE = "fixed_size"  # Legacy: simple word-based chunking
-    PARAGRAPH = "paragraph"  # Legacy: split by paragraphs
+    Only Docling native strategies are exposed. Legacy strategies
+    (paragraph, fixed_size) are kept internally as fallback mechanisms.
+    """
+
+    HYBRID = "hybrid"  # Docling's HybridChunker
+    HIERARCHICAL = "hierarchical"  # Docling's HierarchicalChunker
 
 
 class DataProcessingConfig(BaseConfigModel):

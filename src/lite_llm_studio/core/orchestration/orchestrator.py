@@ -30,6 +30,9 @@ class Orchestrator:
         Args:
             logger_name (str): Name of the logger to be used for this component.
         """
+        # callback que a UI pode registrar para receber progresso de treino
+        self._training_progress_cb = None
+
         self.logger = logging.getLogger(logger_name)
         self.logger.debug(f"Initializing Orchestrator with logger: {logger_name}")
 
@@ -45,6 +48,28 @@ class Orchestrator:
             self.logger.error(f"Failed to initialize Orchestrator: {e}", exc_info=True)
             raise
 
+    # -------------------------------------------------------------------------
+    # Public helpers for the UI
+    # -------------------------------------------------------------------------
+    def set_training_progress_callback(self, cb):
+        """
+        UI/Streamlit can call this to receive training progress updates.
+
+        The callback is expected to be callable like:
+            cb(message: str, progress: float | None)
+
+        where progress is in [0,1] or None.
+        """
+        self.logger.debug("Setting training progress callback on orchestrator")
+        self._training_progress_cb = cb
+
+    def _clear_training_progress_callback(self):
+        self.logger.debug("Clearing training progress callback on orchestrator")
+        self._training_progress_cb = None
+
+    # -------------------------------------------------------------------------
+    # Hardware scan
+    # -------------------------------------------------------------------------
     def execute_hardware_scan(self) -> dict[str, Any] | None:
         """
         Perform a hardware scan of the system.
@@ -122,6 +147,9 @@ class Orchestrator:
             self.logger.error("=" * 40, exc_info=True)
             return None
 
+    # -------------------------------------------------------------------------
+    # Document processing
+    # -------------------------------------------------------------------------
     def execute_document_processing(self, config: "DataProcessingConfig") -> dict[str, Any] | None:
         """
         Process documents using the document processor.
@@ -159,6 +187,9 @@ class Orchestrator:
             self.logger.error("=" * 20, exc_info=True)
             return None
 
+    # -------------------------------------------------------------------------
+    # Dataset creation
+    # -------------------------------------------------------------------------
     def create_dataset(self, chunks_files: list[str], output_dir: str, dataset_name: str, description: str = "") -> dict[str, Any] | None:
         """
         Create a fine-tuning dataset from processed chunks.
@@ -193,6 +224,9 @@ class Orchestrator:
             self.logger.error("=" * 40, exc_info=True)
             return None
 
+    # -------------------------------------------------------------------------
+    # Training / fine-tuning
+    # -------------------------------------------------------------------------
     def execute_training(self, training_config: dict[str, Any]) -> dict[str, Any] | None:
         """
         Execute model fine-tuning with LoRA adapters.
@@ -229,7 +263,7 @@ class Orchestrator:
             # Import training module
             from ..ml.training import TrainingConfig, train_lora_model
 
-            # Create training configuration
+            # Build training configuration object
             config = TrainingConfig(
                 dataset_dir=training_config["dataset_dir"],
                 base_model_path=training_config["base_model_path"],
@@ -259,7 +293,12 @@ class Orchestrator:
 
             # Execute training
             self.logger.info("Initiating fine-tuning process...")
-            trained_model_path = train_lora_model(config)
+
+            # se a UI registrou um callback, passamos para o trainer
+            trained_model_path = train_lora_model(
+                config,
+                progress_callback=self._training_progress_cb,
+            )
 
             self.logger.info("=" * 40)
             self.logger.info("Model fine-tuning completed successfully")
@@ -277,3 +316,6 @@ class Orchestrator:
             self.logger.error(f"CRITICAL ERROR during model training: {str(e)}")
             self.logger.error("=" * 40, exc_info=True)
             return None
+
+        finally:
+            self._clear_training_progress_callback()
