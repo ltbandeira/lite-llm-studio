@@ -20,6 +20,7 @@ from lite_llm_studio.core.configuration.model_schema import DiscoveryConfig, Gen
 from lite_llm_studio.core.instrumentation.scanner import HardwareScanner
 from lite_llm_studio.core.ml.registry import ModelRegistry
 from lite_llm_studio.core.ml.runtimes.llamacpp_rt import LlamaCppRuntime
+from lite_llm_studio.core.ml.runtimes.transformers_rt import TransformersRuntime
 
 from ..components import create_directory_cards_html
 from ..icons import ICONS
@@ -203,46 +204,74 @@ def render_model_selection_section():
 
     st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
 
-    # Model selection dropdown
-    model_options = ["Select a model..."] + [model["name"] for model in st.session_state.indexed_models]
-    selected_model_name = st.selectbox(
+    # Model selection dropdown with format indicators
+    model_options_display = ["Select a model..."]
+    model_name_to_display = {}
+    
+    for model in st.session_state.indexed_models:
+        card = model.get("card")
+        format_tag = ""
+        if card:
+            if card.runtime == "transformers":
+                format_tag = " [PyTorch/Finetunable]"
+            elif card.runtime == "llamacpp":
+                format_tag = " [GGUF/Inference]"
+        display_name = f"{model['name']}{format_tag}"
+        model_options_display.append(display_name)
+        model_name_to_display[model['name']] = display_name
+    
+    # Determine current selection
+    current_index = 0
+    if st.session_state.selected_model:
+        selected_name = st.session_state.selected_model["name"]
+        if selected_name in model_name_to_display:
+            try:
+                current_index = model_options_display.index(model_name_to_display[selected_name])
+            except ValueError:
+                current_index = 0
+    
+    selected_model_display_name = st.selectbox(
         "Choose Model",
-        options=model_options,
-        index=(
-            0
-            if not st.session_state.selected_model
-            else model_options.index(st.session_state.selected_model["name"]) if st.session_state.selected_model["name"] in model_options else 0
-        ),
+        options=model_options_display,
+        index=current_index,
         key="model_selector",
         label_visibility="collapsed",
     )
 
-    if selected_model_name != "Select a model...":
-        selected_model = next((model for model in st.session_state.indexed_models if model["name"] == selected_model_name), None)
-        if selected_model != st.session_state.selected_model:
-            logger.info(f"Model selected: {selected_model_name}")
+    if selected_model_display_name != "Select a model...":
+        # Extract the actual model name (remove format tag)
+        actual_model_name = None
+        for model in st.session_state.indexed_models:
+            if model_name_to_display[model["name"]] == selected_model_display_name:
+                actual_model_name = model["name"]
+                break
+        
+        if actual_model_name:
+            selected_model = next((model for model in st.session_state.indexed_models if model["name"] == actual_model_name), None)
+            if selected_model != st.session_state.selected_model:
+                logger.info(f"Model selected: {actual_model_name}")
 
-            # Check if we're changing from a loaded model to a different model
-            if st.session_state.loaded_model and st.session_state.loaded_model != selected_model:
-                logger.info("Different model selected - resetting loaded state and configuration")
-                st.session_state.model_loaded = False
-                st.session_state.loaded_model = None
-                # Reset configuration to defaults for the new model
-                st.session_state.model_config = {
-                    "temperature": 0.7,
-                    "max_tokens": 2048,
-                    "top_p": 0.9,
-                    "context_length": 4096,
-                    "use_gpu": False,
-                    "gpu_layers": 0,
-                }
-                # Clear chat history and compose field when switching models
-                st.session_state.chat_history = []
-                st.session_state.message_counter = 0
-                st.session_state.compose_widget = ""
+                # Check if we're changing from a loaded model to a different model
+                if st.session_state.loaded_model and st.session_state.loaded_model != selected_model:
+                    logger.info("Different model selected - resetting loaded state and configuration")
+                    st.session_state.model_loaded = False
+                    st.session_state.loaded_model = None
+                    # Reset configuration to defaults for the new model
+                    st.session_state.model_config = {
+                        "temperature": 0.7,
+                        "max_tokens": 2048,
+                        "top_p": 0.9,
+                        "context_length": 4096,
+                        "use_gpu": False,
+                        "gpu_layers": 0,
+                    }
+                    # Clear chat history and compose field when switching models
+                    st.session_state.chat_history = []
+                    st.session_state.message_counter = 0
+                    st.session_state.compose_widget = ""
 
-            st.session_state.selected_model = selected_model
-            st.rerun()
+                st.session_state.selected_model = selected_model
+                st.rerun()
 
 
 def render_model_configuration_section():
@@ -576,10 +605,26 @@ def load_model():
         # Show debug info in UI temporarily
         st.info(f"Debug: GPU={use_gpu}, Layers={gpu_layers}, Config={st.session_state.model_config.get('use_gpu', 'NOT_SET')}")
 
-        # Initialize or reinitialize runtime
-        if st.session_state.model_runtime is None:
-            logger.debug("Initializing LlamaCppRuntime")
-            st.session_state.model_runtime = LlamaCppRuntime()
+        # Determine the correct runtime based on model format
+        is_transformers_model = model_card.runtime == "transformers"
+        runtime_class = TransformersRuntime if is_transformers_model else LlamaCppRuntime
+        runtime_name = "TransformersRuntime" if is_transformers_model else "LlamaCppRuntime"
+        
+        logger.info(f"Model format: {model_card.quantization.get('format', 'unknown')}, Runtime: {runtime_name}")
+
+        # Initialize or reinitialize runtime with the correct type
+        current_runtime_name = type(st.session_state.model_runtime).__name__ if st.session_state.model_runtime else None
+        
+        if st.session_state.model_runtime is None or current_runtime_name != runtime_name:
+            logger.debug(f"Initializing {runtime_name}")
+            # Unload previous runtime if exists
+            if st.session_state.model_runtime is not None and st.session_state.model_loaded:
+                try:
+                    st.session_state.model_runtime.unload()
+                except Exception as unload_error:
+                    logger.warning(f"Error unloading previous model: {unload_error}")
+            # Initialize new runtime
+            st.session_state.model_runtime = runtime_class()
         elif st.session_state.model_loaded:
             logger.debug("Unloading previous model before loading new one")
             try:

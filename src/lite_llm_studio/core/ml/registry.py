@@ -22,6 +22,7 @@ class ModelRegistry:
             raise FileNotFoundError(f"Models root not found or not a directory: {root}")
 
         found: list[ModelCard] = []
+        found_dirs = set()  # Track directories already processed
 
         # metadata.json -> preferido
         for meta in root.rglob("metadata.json"):
@@ -29,11 +30,35 @@ class ModelRegistry:
                 card = self._load_card_from_metadata(meta)
                 self._cards[card.slug] = card
                 found.append(card)
+                found_dirs.add(str(meta.parent))
             except Exception as e:
                 print(f"[registry] Skipping metadata {meta}: {e}")
 
+        # Modelos PyTorch/Transformers (config.json + .safetensors)
+        for config in root.rglob("config.json"):
+            model_dir = config.parent
+            
+            # Skip if already processed
+            if str(model_dir) in found_dirs:
+                continue
+                
+            # Verifica se tem arquivos .safetensors
+            safetensors_files = list(model_dir.glob("*.safetensors"))
+            
+            if safetensors_files:
+                try:
+                    card = self._mk_minimal_card_from_pytorch(model_dir, safetensors_files)
+                    self._cards[card.slug] = card
+                    found.append(card)
+                    found_dirs.add(str(model_dir))
+                except Exception as e:
+                    print(f"[registry] Skipping PyTorch model {model_dir}: {e}")
+
         # arquivos .gguf sem metadata
         for gguf in root.rglob("*.gguf"):
+            # Skip if directory already processed
+            if str(gguf.parent) in found_dirs:
+                continue
             # se já carregado via metadata, ignora
             if any(c.model_file() == gguf for c in found):
                 continue
@@ -41,6 +66,7 @@ class ModelRegistry:
             card = self._mk_minimal_card_from_gguf(gguf)
             self._cards[card.slug] = card
             found.append(card)
+            found_dirs.add(str(gguf.parent))
 
         # ordena por nome
         found.sort(key=lambda c: (c.name.lower(), c.version))
@@ -108,5 +134,48 @@ class ModelRegistry:
             task="chat",
             quantization={"format": "gguf"},
             tags=["discovered"],
+            system_prompt="You are a helpful AI assistant. Please provide clear, accurate, and concise responses to user questions.",
+        )
+
+    def _mk_minimal_card_from_pytorch(self, model_dir: Path, safetensors_files: list[Path]) -> ModelCard:
+        """Create a minimal ModelCard from a PyTorch/HuggingFace model directory."""
+        name = model_dir.name
+        slug = name.lower().replace(" ", "-")
+        
+        # Try to read config.json for more info
+        model_type = None
+        try:
+            config_path = model_dir / "config.json"
+            if config_path.exists():
+                with config_path.open("r", encoding="utf-8") as f:
+                    config_data = json.load(f)
+                    model_type = config_data.get("model_type", "")
+                    architectures = config_data.get("architectures", [])
+                    
+                    # Add architecture info if available
+                    if architectures:
+                        arch_name = architectures[0] if isinstance(architectures, list) else architectures
+                        name = f"{name} ({arch_name})"
+                    elif model_type:
+                        name = f"{name} ({model_type})"
+        except Exception as e:
+            print(f"[registry] Could not read config.json for {model_dir}: {e}")
+        
+        # Use directory path for PyTorch models (loaded by directory, not individual file)
+        artifacts = ArtifactInfo(model_path=".")
+
+        # Auto-detect model family from directory name
+        family = self._detect_model_family(model_dir.name)
+
+        return ModelCard(
+            name=name,
+            slug=slug,
+            artifacts=artifacts,
+            runtime="transformers",
+            root_dir=str(model_dir),
+            family=family,
+            task="chat",
+            quantization={"format": "safetensors"},
+            tags=["pytorch", "transformers", "finetunable"],
             system_prompt="You are a helpful AI assistant. Please provide clear, accurate, and concise responses to user questions.",
         )

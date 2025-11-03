@@ -77,7 +77,7 @@ class ModelCard(BaseConfigModel):
     family: Literal["LLaMA", "Qwen", "Mistral", "Phi", "Unknown"] = "LLaMA"
     task: Literal["chat", "completion"] = "chat"
 
-    runtime: Literal["llamacpp"] = "llamacpp"
+    runtime: Literal["llamacpp", "transformers"] = "llamacpp"
     quantization: dict | None = None
 
     artifacts: ArtifactInfo
