@@ -1,9 +1,11 @@
+# ruff: noqa: I001
+
 """
 Module core.ml.training
 ----------------------
 
 This module handles fine-tuning of causal language models using LoRA adapters
-with Unsloth for optimization on modest hardware (CPU and consumer GPUs).
+with Unsloth for GPU-accelerated training. Optimized for CUDA-capable NVIDIA GPUs.
 """
 
 import os
@@ -25,17 +27,12 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-import unsloth
 from unsloth import FastLanguageModel
 import torch
 from datasets import Dataset, load_dataset
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-    TrainerCallback,
-)
+from transformers import TrainerCallback
 from trl import SFTConfig, SFTTrainer
 
 logger = logging.getLogger("app.ml.training")
@@ -72,7 +69,7 @@ class TrainingConfig:
         warmup_steps: Number of warmup steps for learning rate scheduler.
         weight_decay: Weight decay for optimizer.
         use_gradient_checkpointing: Enable gradient checkpointing to save memory.
-        use_4bit: Use 4-bit quantization for model loading.
+        use_4bit: Use 4-bit quantization for model loading (recommended for GPUs with < 16GB VRAM).
     """
 
     dataset_dir: str
@@ -90,43 +87,50 @@ class TrainingConfig:
     weight_decay: float = 0.01
     use_gradient_checkpointing: bool = True
     use_4bit: bool = True
-    max_steps: int = 1000  # Maximum training steps. -1 means no limit (train full epochs)
+    enable_early_stopping: bool = False
+    early_stopping_patience: int | None = None
+    early_stopping_threshold: float | None = None
 
 
-def _detect_hardware() -> dict[str, any]:
-    """Detect available hardware for training.
+def _detect_hardware() -> dict[str, Any]:
+    """Detect CUDA GPU for training.
+
+    Training requires a CUDA-capable GPU. This function validates
+    GPU availability and retrieves memory information.
 
     Returns:
         Dictionary with hardware information:
             - has_cuda: bool
-            - has_mps: bool (Apple Silicon)
-            - device: str (cuda, mps, or cpu)
-            - gpu_memory_gb: float (if applicable)
+            - device: str (always "cuda" if successful)
+            - gpu_memory_gb: float
+
+    Raises:
+        RuntimeError: If CUDA GPU is not available.
     """
-    # import torch
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA GPU not detected. GPU training is required for model fine-tuning.")
 
     hardware = {
-        "has_cuda": torch.cuda.is_available(),
-        "has_mps": torch.backends.mps.is_available() if hasattr(torch.backends, "mps") else False,
-        "device": "cpu",
+        "has_cuda": True,
+        "device": "cuda",
         "gpu_memory_gb": 0.0,
     }
 
-    if hardware["has_cuda"]:
-        hardware["device"] = "cuda"
-        try:
-            # Get total GPU memory in GB
-            hardware["gpu_memory_gb"] = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-        except Exception:
-            pass
-    elif hardware["has_mps"]:
-        hardware["device"] = "mps"
+    try:
+        # Get total GPU memory in GB
+        hardware["gpu_memory_gb"] = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        logger.info(f"CUDA GPU detected: {torch.cuda.get_device_name(0)}")
+        logger.info(f"GPU memory: {hardware['gpu_memory_gb']:.2f} GB")
+    except Exception as e:
+        logger.warning(f"Could not retrieve GPU memory info: {e}")
 
     return hardware
 
 
-def _optimize_config_for_hardware(config: TrainingConfig, hardware: dict[str, any]) -> TrainingConfig:
-    """Optimize training configuration based on available hardware.
+def _optimize_config_for_hardware(config: TrainingConfig, hardware: dict[str, Any]) -> TrainingConfig:
+    """Optimize training configuration based on GPU memory.
+
+    Adjusts settings for optimal performance on different GPU memory sizes.
 
     Args:
         config: Initial training configuration
@@ -135,66 +139,29 @@ def _optimize_config_for_hardware(config: TrainingConfig, hardware: dict[str, an
     Returns:
         Optimized training configuration
     """
-    # For CPU-only training, reduce batch size and enable more aggressive memory optimizations
-    if hardware["device"] == "cpu":
-        logger.info("CPU-only mode detected. Applying CPU-optimized settings.")
-        config.batch_size = min(config.batch_size, 2)
-        config.gradient_accumulation_steps = max(config.gradient_accumulation_steps, 4)
-        config.use_gradient_checkpointing = True
-        config.use_4bit = True
+    gpu_memory = hardware["gpu_memory_gb"]
 
-    # For low-memory GPUs (< 8GB), adjust settings
-    elif hardware["device"] == "cuda" and hardware["gpu_memory_gb"] < 8:
-        logger.info(f"Low-memory GPU detected ({hardware['gpu_memory_gb']:.1f}GB). Applying memory-efficient settings.")
-        config.batch_size = min(config.batch_size, 2)
+    # For low-memory GPUs (< 8GB), use aggressive memory optimizations
+    if gpu_memory < 8:
+        logger.info(f"Low-memory GPU detected ({gpu_memory:.1f}GB). Applying memory-efficient settings.")
+        logger.info("  - Reducing batch size to 4")
+        logger.info("  - Increasing gradient accumulation to 4")
+        logger.info("  - Enabling gradient checkpointing and 4-bit quantization")
+        config.batch_size = min(config.batch_size, 4)
         config.gradient_accumulation_steps = max(config.gradient_accumulation_steps, 2)
         config.use_gradient_checkpointing = True
         config.use_4bit = True
 
-    # For mid-range GPUs (8-16GB), moderate settings
-    elif hardware["device"] == "cuda" and hardware["gpu_memory_gb"] < 16:
-        logger.info(f"Mid-range GPU detected ({hardware['gpu_memory_gb']:.1f}GB). Using balanced settings.")
+    # For mid-range GPUs (8-16GB), use 4-bit quantization
+    elif gpu_memory < 16:
+        logger.info(f"Mid-range GPU detected ({gpu_memory:.1f}GB). Using 4-bit quantization for memory efficiency.")
         config.use_4bit = True
 
+    # For high-memory GPUs (>= 16GB), use optimal settings
+    else:
+        logger.info(f"High-memory GPU detected ({gpu_memory:.1f}GB). Using optimal training settings.")
+
     return config
-
-
-def _calculate_eval_steps(max_steps: int, total_steps: int) -> int:
-    """ """
-    if max_steps > 0:
-        # For limited training runs, evaluate strategically
-        if max_steps <= 1000:
-            return 100  # Evaluate every 100 steps (10 times)
-        elif max_steps <= 5000:
-            return 500  # Evaluate every 500 steps (10 times)
-        elif max_steps <= 10000:
-            return 1000  # Evaluate every 1000 steps (10 times)
-        elif max_steps <= 50000:
-            return 2500  # Evaluate every 2500 steps (20 times)
-        else:
-            return 5000  # Evaluate every 5000 steps
-    else:
-        # For full epoch training, evaluate every 1% of total steps
-        return max(100, total_steps // 100)
-
-
-def _calculate_save_steps(max_steps: int, total_steps: int) -> int:
-    """ """
-    if max_steps > 0:
-        # For limited training runs, save checkpoints strategically
-        if max_steps <= 1000:
-            return 500  # Save every 500 steps (2 checkpoints)
-        elif max_steps <= 5000:
-            return 1000  # Save every 1000 steps (5 checkpoints)
-        elif max_steps <= 10000:
-            return 2000  # Save every 2000 steps (5 checkpoints)
-        elif max_steps <= 50000:
-            return 5000  # Save every 5000 steps (10 checkpoints)
-        else:
-            return 10000  # Save every 10000 steps
-    else:
-        # For full epoch training, save every 2% of total steps
-        return max(500, total_steps // 50)
 
 
 def load_jsonl_dataset(file_path: str) -> list[dict[str, str]]:
@@ -221,18 +188,15 @@ def load_jsonl_dataset(file_path: str) -> list[dict[str, str]]:
 
 
 def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, float], None] | None = None) -> str:
-    """Fine‑tune a causal LM using LoRA adapters on the provided dataset.
+    """Fine‑tune a causal LM using LoRA adapters with GPU acceleration.
 
     This function performs parameter‑efficient fine‑tuning using the
-    Unsloth and PEFT libraries. It will load the train and validation
-    splits from the dataset directory, prepare the model and tokenizer
-    from ``base_model_path``, configure LoRA layers, and then train
-    using the SFTTrainer from the ``trl`` library. After training, the
-    fine‑tuned model and tokenizer are saved to ``output_dir``.
-
-    The function automatically detects available hardware (CUDA GPU, Apple
-    Silicon MPS, or CPU) and optimizes training parameters accordingly for
-    best performance on modest hardware.
+    Unsloth and PEFT libraries, optimized for CUDA GPU training. It loads
+    the train and validation splits from the dataset directory, prepares
+    the model and tokenizer from ``base_model_path``, configures LoRA
+    layers, and trains using the SFTTrainer from the ``trl`` library.
+    After training, the fine‑tuned model and tokenizer are saved to
+    ``output_dir``.
 
     Args:
         config: Training configuration with dataset and hyperparameters.
@@ -243,17 +207,9 @@ def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, f
         Path to the directory containing the fine‑tuned model.
 
     Raises:
-        RuntimeError: If required dependencies are missing.
+        RuntimeError: If CUDA GPU is not available or if training fails.
         ValueError: If dataset or model paths are invalid.
-        Exception: If training fails.
     """
-
-    # Import modules after verifying dependencies
-    # import torch
-    # from datasets import load_dataset
-    # from transformers import TrainerCallback
-    # from trl import SFTConfig, SFTTrainer
-    # from unsloth import FastLanguageModel
 
     # Disable torch compilation on Windows to avoid Triton compatibility issues
     if platform.system() == "Windows":
@@ -264,12 +220,10 @@ def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, f
         torch.backends.cudnn.enabled = True
         logger.info("PyTorch JIT compilation disabled to avoid Triton errors")
 
-    # Detect hardware and optimize configuration
-    hardware = _detect_hardware()
-    logger.info(f"Hardware detected: {hardware['device']}")
-    if hardware["gpu_memory_gb"] > 0:
-        logger.info(f"GPU memory: {hardware['gpu_memory_gb']:.1f}GB")
+    # Detect and validate CUDA GPU (required for training)
+    hardware = _detect_hardware()  # Will raise RuntimeError if GPU not available
 
+    # Optimize configuration based on GPU memory
     config = _optimize_config_for_hardware(config, hardware)
 
     # Report progress
@@ -309,7 +263,7 @@ def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, f
     try:
         ds = load_dataset("json", data_files=data_files)
     except Exception as e:
-        raise RuntimeError(f"Failed to load dataset: {e}")
+        raise RuntimeError(f"Failed to load dataset: {e}") from e
 
     # Ensure dataset has correct column structure
     for split_name in ds.keys():
@@ -341,64 +295,30 @@ def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, f
             ds["validation"] = ds["validation"].select(range(max_val_samples))
             logger.info(f"Validation set optimized: {len(ds['validation'])} samples")
 
-    # Load base model and tokenizer
-    # Use Unsloth for GPU (CUDA), native Transformers for CPU
+    # Load base model and tokenizer using Unsloth (GPU-optimized)
     logger.info(f"Loading base model from {base_model_path}")
     if progress_callback:
         progress_callback("Loading base model...", 20.0)
 
-    use_unsloth = hardware["device"] == "cuda"
-    logger.info(f"Using {'Unsloth (GPU-optimized)' if use_unsloth else 'Transformers (CPU-compatible)'} for model loading")
+    logger.info("Using Unsloth for GPU-optimized model loading")
 
     try:
-        if use_unsloth:
-            # GPU: Use Unsloth for optimal performance
-            # Determine dtype based on hardware
-            # Unsloth only accepts None, torch.float16, or torch.bfloat16
-            if config.use_4bit:
-                dtype = None  # Let Unsloth choose the best dtype
-            else:
-                # For non-quantized GPU training, use float16
-                # import torch
-
-                dtype = torch.float16
-
-            logger.info(f"Loading model with Unsloth: dtype={dtype}, 4-bit={config.use_4bit}")
-
-            model, tokenizer = FastLanguageModel.from_pretrained(
-                model_name=str(base_model_path),
-                max_seq_length=config.max_seq_length,
-                dtype=dtype,
-                load_in_4bit=config.use_4bit,
-            )
+        # Determine dtype based on quantization setting
+        # Unsloth only accepts None, torch.float16, or torch.bfloat16
+        if config.use_4bit:
+            dtype = None  # Let Unsloth choose the best dtype for 4-bit
         else:
-            # CPU: Use native Transformers + PEFT (Unsloth doesn't support CPU)
-            # import torch
-            # from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+            # For non-quantized GPU training, use float16
+            dtype = torch.float16
 
-            logger.info(f"Loading model with Transformers: 4-bit={config.use_4bit}")
+        logger.info(f"Loading model with Unsloth: dtype={dtype}, 4-bit={config.use_4bit}")
 
-            # Configure quantization for CPU
-            quantization_config = None
-            if config.use_4bit:
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_compute_dtype=torch.float16,
-                    bnb_4bit_use_double_quant=True,
-                    bnb_4bit_quant_type="nf4",
-                )
-
-            # Load model with transformers
-            model = AutoModelForCausalLM.from_pretrained(
-                str(base_model_path),
-                quantization_config=quantization_config,
-                device_map="cpu",
-                torch_dtype=torch.float32,  # CPU uses float32
-                low_cpu_mem_usage=True,
-            )
-
-            # Load tokenizer
-            tokenizer = AutoTokenizer.from_pretrained(str(base_model_path))
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=str(base_model_path),
+            max_seq_length=config.max_seq_length,
+            dtype=dtype,
+            load_in_4bit=config.use_4bit,
+        )
 
         correct_eos = "<|end_of_text|>"
 
@@ -439,7 +359,7 @@ def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, f
 
     except Exception as e:
         logger.error(f"Model loading error: {e}", exc_info=True)
-        raise RuntimeError(f"Failed to load model: {e}")
+        raise RuntimeError(f"Failed to load model: {e}") from e
 
     # Apply LoRA configuration
     logger.info("Applying LoRA configuration")
@@ -490,39 +410,44 @@ def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, f
 
         # datasets.disable_caching()
 
-    # Define training arguments with optimizations
-    sft_config = SFTConfig(
-        output_dir=str(output_dir),
-        per_device_train_batch_size=config.batch_size,
-        per_device_eval_batch_size=config.batch_size,
-        gradient_accumulation_steps=config.gradient_accumulation_steps,
-        num_train_epochs=config.epochs,
-        max_steps=config.max_steps,  # Limit total steps if specified
-        learning_rate=config.learning_rate,
-        weight_decay=config.weight_decay,
-        warmup_steps=config.warmup_steps,
-        eval_strategy="steps" if "validation" in ds else "no",
-        # Optimize eval frequency based on max_steps
-        eval_steps=_calculate_eval_steps(config.max_steps, total_steps) if "validation" in ds else None,
-        save_strategy="steps" if config.max_steps > 0 else "epoch",  # Save by steps if max_steps is set
-        save_steps=_calculate_save_steps(config.max_steps, total_steps) if config.max_steps > 0 else None,
-        save_total_limit=2,
-        logging_steps=25,
-        logging_first_step=True,
-        fp16=(hardware["device"] == "cuda" and not config.use_4bit),
-        bf16=False,
-        optim="adamw_bnb_8bit" if config.use_4bit else "adamw_torch",
-        lr_scheduler_type="cosine",
-        seed=42,
-        dataloader_num_workers=0,
-        dataloader_persistent_workers=False,
-        remove_unused_columns=False,
-        report_to=None,
-        dataset_text_field="text",  # Tells SFTTrainer which column contains the raw text
-        max_seq_length=config.max_seq_length,  # Changed from max_length to max_seq_length
-        dataset_num_proc=1,  # 1 means single process, not multiprocessing
-        packing=False,
-    )
+    # Define training arguments with epoch-based strategies
+    sft_config_args = {
+        "output_dir": str(output_dir),
+        "per_device_train_batch_size": config.batch_size,
+        "per_device_eval_batch_size": config.batch_size,
+        "gradient_accumulation_steps": config.gradient_accumulation_steps,
+        "num_train_epochs": config.epochs,
+        "learning_rate": config.learning_rate,
+        "weight_decay": config.weight_decay,
+        "warmup_steps": config.warmup_steps,
+        "eval_strategy": "epoch" if "validation" in ds else "no",
+        "save_strategy": "epoch",
+        "save_total_limit": 2,
+        "logging_steps": 25,
+        "logging_first_step": True,
+        "fp16": not config.use_4bit,  # Use FP16 when not using 4-bit quantization
+        "bf16": False,
+        "optim": "adamw_bnb_8bit" if config.use_4bit else "adamw_torch",
+        "lr_scheduler_type": "cosine",
+        "seed": 42,
+        "dataloader_num_workers": 0,
+        "dataloader_persistent_workers": False,
+        "remove_unused_columns": False,
+        "report_to": None,
+        "dataset_text_field": "text",  # Tells SFTTrainer which column contains the raw text
+        "max_seq_length": config.max_seq_length,
+        "dataset_num_proc": 1,  # 1 means single process
+        "packing": False,
+    }
+
+    # Add early stopping configuration if enabled and validation set exists
+    if config.enable_early_stopping and "validation" in ds:
+        sft_config_args["metric_for_best_model"] = "loss"
+        sft_config_args["greater_is_better"] = False
+        sft_config_args["load_best_model_at_end"] = True
+        logger.info("Early stopping configuration added to training arguments")
+
+    sft_config = SFTConfig(**sft_config_args)  # type: ignore[arg-type]
 
     # Debug: verify the config values
     logger.info(f"SFTConfig eos_token: {sft_config.eos_token}")
@@ -531,40 +456,67 @@ def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, f
     logger.info(f"Tokenizer eos_token_id: {tokenizer.eos_token_id}")
 
     # Log optimization settings
+    logger.info(f"Training strategy: {config.epochs} epochs")
     if "validation" in ds:
-        logger.info(f"Evaluation strategy: every {sft_config.eval_steps} steps")
-    if config.max_steps > 0:
-        logger.info(f"Checkpoint saving: every {sft_config.save_steps} steps")
-        logger.info(f"Training will complete after {config.max_steps} steps (not full epoch)")
+        logger.info("Evaluation strategy: after each epoch")
+    logger.info(f"Checkpoint saving: after each epoch (max {sft_config.save_total_limit} checkpoints)")
 
     # Custom callback for progress reporting
     class ProgressCallback(TrainerCallback):
-        def __init__(self, callback_fn):
-            self.total_steps = 0
+        def __init__(self, callback_fn, total_epochs):
             self.callback_fn = callback_fn
+            self.total_epochs = total_epochs
+            self.initial_loss = None
+            self.current_loss = None
 
-        def on_step_begin(self, args, state, control, **kwargs):
-            # Captura o total_steps real (calculado pelo SFTTrainer)
-            if state.is_local_process_zero and self.total_steps == 0:
-                self.total_steps = state.max_steps
-                logger.info(f"ProgressCallback: Total steps set to {self.total_steps}")
+        def on_log(self, args, state, control, logs=None, **kwargs):
+            """Capture loss values from training logs."""
+            if logs and "loss" in logs:
+                loss_value = logs["loss"]
+                # Store initial loss from first log
+                if self.initial_loss is None:
+                    self.initial_loss = loss_value
+                # Update current loss
+                self.current_loss = loss_value
+            return control
 
-        def on_step_end(self, args, state, control, **kwargs):
-            if self.callback_fn and state.global_step > 0 and self.total_steps > 0:
-                progress = 30.0 + (state.global_step / self.total_steps) * 60.0
-                self.callback_fn(f"Training: Step {state.global_step}/{self.total_steps}", min(progress, 90.0))
+        def on_epoch_begin(self, args, state, control, **kwargs):
+            """Update progress at the start of each epoch."""
+            if self.callback_fn:
+                # state.epoch is 0-indexed, so epoch 0 means starting epoch 1
+                current_epoch = int(state.epoch)
+                progress = 30.0 + (current_epoch / self.total_epochs) * 60.0
+
+                # Build progress message with loss information
+                message = f"Training: Epoch {current_epoch}/{self.total_epochs}"
+                if self.initial_loss is not None and self.current_loss is not None:
+                    message += f" | Initial Loss: {self.initial_loss:.4f}, Current Loss: {self.current_loss:.4f}"
+
+                self.callback_fn(message, min(progress, 90.0))
             return control
 
     # Initialize trainer
     logger.info("Starting fine‑tuning")
     logger.info(f"Effective batch size: {config.batch_size * config.gradient_accumulation_steps}")
 
+    callbacks: list[TrainerCallback] = []
     if progress_callback:
-        progress_callback("Starting training...", 35.0)
+        # Show initial progress: 0/N epochs
+        progress_callback(f"Training: Epoch 0/{config.epochs}", 30.0)
+        callbacks.append(ProgressCallback(progress_callback, config.epochs))
 
-    callbacks = []
-    if progress_callback:
-        callbacks.append(ProgressCallback(progress_callback))
+    # Add early stopping callback if enabled
+    if config.enable_early_stopping:
+        if "validation" not in ds:
+            logger.warning("Early stopping is enabled but no validation dataset found. Early stopping will be disabled.")
+        else:
+            from transformers import EarlyStoppingCallback
+
+            patience = config.early_stopping_patience if config.early_stopping_patience is not None else 3
+            threshold = config.early_stopping_threshold if config.early_stopping_threshold is not None else 0.001
+
+            logger.info(f"Early stopping enabled: patience={patience}, threshold={threshold}")
+            callbacks.append(EarlyStoppingCallback(early_stopping_patience=patience, early_stopping_threshold=threshold))
 
     try:
         # On Windows, monkey-patch the dataset.map to remove num_proc parameter
@@ -598,7 +550,7 @@ def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, f
 
     except Exception as e:
         logger.error(f"Training error: {e}", exc_info=True)
-        raise RuntimeError(f"Training failed: {e}")
+        raise RuntimeError(f"Training failed: {e}") from e
 
     # Save model and tokenizer
     logger.info("Training complete, saving model and tokenizer")
@@ -628,7 +580,7 @@ def train_lora_model(config: TrainingConfig, progress_callback: Callable[[str, f
             json.dump(config_dict, f, indent=2)
 
     except Exception as e:
-        raise RuntimeError(f"Failed to save model: {e}")
+        raise RuntimeError(f"Failed to save model: {e}") from e
 
     logger.info(f"Fine-tuned model saved successfully to {output_dir}")
     if progress_callback:

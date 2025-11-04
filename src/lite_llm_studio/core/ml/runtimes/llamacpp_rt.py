@@ -19,7 +19,11 @@ CHAT_TEMPLATES = {
         "user": "<|start_header_id|>user<|end_header_id|>\n\n{message}<|eot_id|>",
         "assistant": "<|start_header_id|>assistant<|end_header_id|>\n\n{message}<|eot_id|>",
         "conversation_end": "<|start_header_id|>assistant<|end_header_id|>\n\n",
-        "simple_format": "<|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{user_message}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+        "simple_format": (
+            "<|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>"
+            "<|start_header_id|>user<|end_header_id|>\n\n{user_message}<|eot_id|>"
+            "<|start_header_id|>assistant<|end_header_id|>\n\n"
+        ),
     },
     "Qwen": {
         "system": "<|im_start|>system\n{system_prompt}<|im_end|>\n",
@@ -70,14 +74,14 @@ class LlamaCppRuntime(BaseRuntime):
 
                 original_del = LlamaModel.__del__
 
-                def patched_del(self):
+                def patched_del(self) -> None:  # type: ignore[no-untyped-def]
                     try:
                         original_del(self)
                     except AttributeError:
                         # Suppress 'sampler' AttributeError in llama-cpp-python 0.3.16
                         pass
 
-                LlamaModel.__del__ = patched_del
+                LlamaModel.__del__ = patched_del  # type: ignore[method-assign]
                 self.logger.debug("Applied patch for llama-cpp-python 0.3.16 AttributeError")
             except Exception as e:
                 self.logger.debug(f"Could not apply llama-cpp-python patch: {e}")
@@ -121,13 +125,13 @@ class LlamaCppRuntime(BaseRuntime):
                 self.logger.info(f"Auto-detected model family: LLaMA (from path: {model_path})")
             elif "qwen" in model_name_lower:
                 card.family = "Qwen"
-                self.logger.info(f"Auto-detected model family: Qwen")
+                self.logger.info("Auto-detected model family: Qwen")
             elif "mistral" in model_name_lower:
                 card.family = "Mistral"
-                self.logger.info(f"Auto-detected model family: Mistral")
+                self.logger.info("Auto-detected model family: Mistral")
             elif "phi" in model_name_lower:
                 card.family = "Phi"
-                self.logger.info(f"Auto-detected model family: Phi")
+                self.logger.info("Auto-detected model family: Phi")
             else:
                 self.logger.warning(f"Could not auto-detect model family from: {model_path}")
 

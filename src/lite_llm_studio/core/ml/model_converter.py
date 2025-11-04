@@ -80,13 +80,14 @@ def merge_lora_to_base_model(
 
     except Exception as e:
         logger.error(f"Model merge failed: {e}", exc_info=True)
-        raise RuntimeError(f"Failed to merge LoRA adapters: {e}")
+        raise RuntimeError(f"Failed to merge LoRA adapters: {e}") from e
 
 
 def convert_hf_to_gguf(
     model_path: str,
     output_path: str,
     quantization: str = "f16",
+    output_name: str | None = None,
 ) -> str:
     """Convert HuggingFace model to GGUF format using llama.cpp.
 
@@ -94,6 +95,7 @@ def convert_hf_to_gguf(
         model_path: Path to HuggingFace model directory
         output_path: Where to save GGUF file
         quantization: Quantization type (f32, f16, bf16, q8_0, etc.)
+        output_name: Optional base name for output file (defaults to "model")
 
     Returns:
         Path to GGUF file
@@ -116,9 +118,10 @@ def convert_hf_to_gguf(
         output_dir = Path(output_path)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Output filename
+        # Output filename with custom name if provided
         quant_type = quantization.lower()
-        output_file = output_dir / f"model-{quant_type}.gguf"
+        base_name = output_name or "model"
+        output_file = output_dir / f"{base_name}-{quant_type}.gguf"
 
         logger.info("Converting HuggingFace model to GGUF...")
         logger.info(f"  Model: {model_path}")
@@ -169,7 +172,7 @@ def convert_hf_to_gguf(
 
     except Exception as e:
         logger.error(f"GGUF conversion failed: {e}", exc_info=True)
-        raise RuntimeError(f"GGUF conversion failed: {e}")
+        raise RuntimeError(f"GGUF conversion failed: {e}") from e
 
 
 def convert_finetuned_model_to_gguf(
@@ -242,13 +245,14 @@ def convert_finetuned_model_to_gguf(
             model_path=merged_path,
             output_path=str(output_base),
             quantization=quantization,
+            output_name=model_name,
         )
 
         logger.info("=" * 60)
-        logger.info("✅ CONVERSION COMPLETED SUCCESSFULLY")
+        logger.info("CONVERSION COMPLETED SUCCESSFULLY")
         logger.info("=" * 60)
-        logger.info(f"📁 Merged model: {merged_path}")
-        logger.info(f"📦 GGUF model: {gguf_path}")
+        logger.info(f"Merged model: {merged_path}")
+        logger.info(f"GGUF model: {gguf_path}")
 
         # Create README
         readme_path = output_base / "README.md"
@@ -257,16 +261,16 @@ def convert_finetuned_model_to_gguf(
         with open(readme_path, "w", encoding="utf-8") as f:
             f.write(f"# {model_name}\n\n")
             f.write("Fine-tuned model converted to standalone GGUF format.\n\n")
-            f.write("## 📁 Files\n\n")
+            f.write("## Files\n\n")
             f.write(f"- `{gguf_filename}`: Standalone GGUF model ({quantization})\n")
             f.write("- `merged_model/`: Intermediate merged HuggingFace model\n")
             f.write("- Compatible with llama.cpp, Ollama, LM Studio, etc.\n\n")
-            f.write("## 📊 Model Information\n\n")
+            f.write("## Model Information\n\n")
             f.write(f"- **Base Model**: `{base_model_path}`\n")
             f.write(f"- **LoRA Adapter**: `{adapter_path}`\n")
             f.write(f"- **Quantization**: {quantization}\n")
             f.write("- **Conversion**: LoRA merge + HuggingFace to GGUF\n\n")
-            f.write("## 🚀 Usage\n\n")
+            f.write("## Usage\n\n")
             f.write("This is a **standalone model** - no need for base model or adapter!\n\n")
             f.write("### llama.cpp\n")
             f.write("```bash\n")
@@ -289,7 +293,7 @@ def convert_finetuned_model_to_gguf(
             f.write("print(response['choices'][0]['text'])\n")
             f.write("```\n")
 
-        logger.info(f"📝 Created README at: {readme_path}")
+        logger.info(f"Created README at: {readme_path}")
 
         return {
             "merged_model": merged_path,
@@ -307,4 +311,4 @@ def convert_finetuned_model_to_gguf(
             f"3. llama.cpp not found in project root\n"
             f"4. Adapter or base model corrupted\n\n"
             f"Supported quantization: f32, f16, bf16, q8_0, auto"
-        )
+        ) from e

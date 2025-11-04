@@ -175,7 +175,11 @@ class DataPreparationStep(PipelineStep):
                 "Chunking Strategy",
                 options=list(strategy_options.values()),
                 index=0,  # Default to "Hybrid"
-                help="Hybrid: Advanced tokenization-aware chunking that preserves document structure and respects token limits. Hierarchical: One chunk per document element, preserving document hierarchy.",
+                help=(
+                    "Hybrid: Advanced tokenization-aware chunking that preserves document structure "
+                    "and respects token limits. Hierarchical: One chunk per document element, "
+                    "preserving document hierarchy."
+                ),
                 key="dp_chunking_strategy_display",
             )
 
@@ -491,7 +495,7 @@ class TrainingStep(PipelineStep):
             # Show GGUF models if found, but explain they're incompatible
             if gguf_models:
                 st.warning(
-                    f"""
+                    """
                     **Modelos GGUF detectados não compatíveis com fine-tuning:**
                     """
                 )
@@ -499,7 +503,7 @@ class TrainingStep(PipelineStep):
             # Show Meta native format models if found
             if meta_native_models:
                 st.warning(
-                    f"""
+                    """
                     **Modelos no formato Meta nativo detectados (não compatíveis):**
                     """
                 )
@@ -545,15 +549,6 @@ class TrainingStep(PipelineStep):
                 help="Per‑device batch size",
                 key="tp_batch_size",
             )
-            gradient_accumulation = st.number_input(
-                "Gradient Accumulation",
-                min_value=1,
-                max_value=32,
-                value=1,
-                step=1,
-                help="Number of gradient accumulation steps",
-                key="tp_gradient_accumulation",
-            )
         with col2:
             learning_rate = st.number_input(
                 "Learning Rate",
@@ -593,34 +588,62 @@ class TrainingStep(PipelineStep):
                 help="LoRA alpha scaling factor",
                 key="tp_lora_alpha",
             )
-            lora_dropout = st.number_input(
-                "LoRA Dropout",
-                min_value=0.0,
-                max_value=0.5,
-                value=0.0,
-                step=0.01,
-                format="%.2f",
-                help="Dropout probability for LoRA layers",
-                key="tp_lora_dropout",
-            )
+
+        # Early Stopping Configuration
+        st.markdown("---")
+        st.markdown("#### Early Stopping (Optional)")
+
+        enable_early_stopping = st.checkbox(
+            "Enable Early Stopping",
+            value=False,
+            help="Stop training early if validation loss stops improving. **Requires a validation dataset to work.**",
+            key="tp_enable_early_stopping",
+        )
+
+        early_stopping_patience = None
+        early_stopping_threshold = None
+
+        if enable_early_stopping:
+            col_es1, col_es2 = st.columns(2)
+            with col_es1:
+                early_stopping_patience = st.number_input(
+                    "Patience (epochs)",
+                    min_value=1,
+                    max_value=10,
+                    value=3,
+                    step=1,
+                    help="Number of epochs with no improvement after which training will be stopped",
+                    key="tp_early_stopping_patience",
+                )
+            with col_es2:
+                early_stopping_threshold = st.number_input(
+                    "Min Delta",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.001,
+                    step=0.001,
+                    format="%.4f",
+                    help="Minimum change in validation loss to qualify as an improvement",
+                    key="tp_early_stopping_threshold",
+                )
 
         # Store hyperparameters in session state for later retrieval
         st.session_state.tp_training_params = {
             "epochs": int(epochs),
             "batch_size": int(batch_size),
-            "gradient_accumulation_steps": int(gradient_accumulation),
             "learning_rate": float(learning_rate),
             "max_seq_length": int(max_seq_length),
             "lora_r": int(lora_r),
             "lora_alpha": int(lora_alpha),
-            "lora_dropout": float(lora_dropout),
+            "enable_early_stopping": enable_early_stopping,
+            "early_stopping_patience": int(early_stopping_patience) if early_stopping_patience else None,
+            "early_stopping_threshold": float(early_stopping_threshold) if early_stopping_threshold else None,
         }
 
         st.markdown("---")
         st.markdown("#### Output Configuration")
         output_name = st.text_input(
             "Output Model Name",
-            value="finetuned_model",
             help="Name of the directory to save the fine‑tuned model",
             key="tp_output_name",
         )
@@ -643,7 +666,6 @@ class TrainingStep(PipelineStep):
             raise ValueError("No output model name provided.")
 
         # Construct absolute dataset and output paths
-        user_data_dir = get_user_data_directory()
         # Ensure dataset directory exists
         ds_path = Path(dataset_dir)
         if not ds_path.exists():
@@ -664,8 +686,9 @@ class TrainingStep(PipelineStep):
             "max_seq_length": params.get("max_seq_length", 1024),
             "lora_r": params.get("lora_r", 8),
             "lora_alpha": params.get("lora_alpha", 16),
-            "lora_dropout": params.get("lora_dropout", 0.05),
-            "gradient_accumulation_steps": params.get("gradient_accumulation_steps", 1),
+            "enable_early_stopping": params.get("enable_early_stopping", False),
+            "early_stopping_patience": params.get("early_stopping_patience"),
+            "early_stopping_threshold": params.get("early_stopping_threshold"),
         }
         # Log configuration
         self.logger.info(f"Training configuration: {training_cfg}")
@@ -754,7 +777,7 @@ PIPELINE_REGISTRY: list[tuple[PipelineStepConfig, type[PipelineStep]]] = [
 class TrainingPipeline:
     """Manages the training pipeline state and execution."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.steps: list[PipelineStep] = []
         self.configs: list[PipelineStepConfig] = []
 
@@ -1031,6 +1054,7 @@ def _render_step_panel() -> None:
             # Passo de treinamento: registra callback que atualiza a barra em tempo real
             if step_key == "training":
                 from lite_llm_studio.app.app import get_orchestrator
+
                 orchestrator = get_orchestrator()
 
                 def _progress_cb(msg: str, percent: float | None) -> None:
@@ -1101,9 +1125,14 @@ def _render_step_panel() -> None:
             with col1:
                 quantization = st.selectbox(
                     "Quantization Format",
-                    options=["f16", "q8_0", "f32", "bf16", "auto"],
+                    options=["f16", "bf16", "q8_0", "f32"],
                     index=0,
-                    help="f16: Recommended (16-bit float), q8_0: Compressed (8-bit), f32: No compression, auto: Detects automatically",
+                    help=(
+                        "• f16: Float16 - Recommended for most cases (good quality, reasonable size)\n"
+                        "• bf16: BFloat16 - Better numerical stability than f16\n"
+                        "• q8_0: 8-bit quantization - Smaller size, slight quality loss\n"
+                        "• f32: Float32 - No compression (largest size, highest precision)"
+                    ),
                     key="tp_gguf_quant",
                 )
             if st.button("Convert to GGUF", key="tp_convert_gguf", type="primary"):
@@ -1111,19 +1140,28 @@ def _render_step_panel() -> None:
                     with st.spinner("Converting model to GGUF..."):
                         from lite_llm_studio.core.configuration import get_default_models_directory
                         from lite_llm_studio.core.ml.model_converter import convert_finetuned_model_to_gguf
+
                         final_result = st.session_state.get("tp_result_model")
                         base_model = st.session_state.get("tp_selected_model")
+                        output_name = st.session_state.get("tp_output_model_name", "finetuned_model")
+
+                        if not final_result:
+                            raise ValueError("No trained model path available")
+                        if not base_model:
+                            raise ValueError("No base model path available")
+
                         models_dir = str(get_default_models_directory())
-                        logger.info(f"Converting model to GGUF: adapter={final_result}, base={base_model}, quant={quantization}")
+                        logger.info(f"Converting model to GGUF: adapter={final_result}, base={base_model}, quant={quantization}, name={output_name}")
                         result = convert_finetuned_model_to_gguf(
-                            adapter_path=final_result,
-                            base_model_path=base_model,
+                            adapter_path=str(final_result),
+                            base_model_path=str(base_model),
+                            output_name=output_name,
                             quantization=quantization,
                             models_dir=models_dir,
                         )
                         st.success("GGUF model conversion completed successfully!")
                         st.markdown("#### Generated Files")
-                        st.markdown("**GGUF Model (ready to use):**")
+                        st.markdown("**GGUF Model:**")
                         st.code(result["gguf_model"], language=None)
                         st.caption("This is a **complete standalone model** - ready to use!")
                 except Exception as e:

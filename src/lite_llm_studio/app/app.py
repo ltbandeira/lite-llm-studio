@@ -23,19 +23,6 @@ from lite_llm_studio.app.styles import load_fonts_and_styles
 from lite_llm_studio.app.utils import get_app_logger, setup_app_logging
 from lite_llm_studio.core.orchestration import Orchestrator
 
-# Global orchestrator instance (initialized via caching)
-_orchestrator: Orchestrator | None = None
-
-def get_orchestrator() -> Orchestrator:
-    """
-    Return a singleton Orchestrator so UI and backend share the same instance.
-    """
-    global _orchestrator
-    if _orchestrator is None:
-        _orchestrator = Orchestrator()
-    return _orchestrator
-
-
 # ------------------------------
 # Application Configuration
 # ------------------------------

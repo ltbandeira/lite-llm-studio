@@ -125,7 +125,6 @@ def render_models_directory_section():
     info_col, action_col = st.columns([5, 2], gap="small", vertical_alignment="bottom")
 
     with info_col:
-        st.markdown(f"**Models Directory:** `{dir_path}`")
         stats_l, stats_c, stats_r = st.columns([1, 1, 1])
         with stats_l:
             st.markdown("**Directory:** Ready" if models_info["exists"] else "**Directory:** Missing")

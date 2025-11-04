@@ -246,8 +246,6 @@ class Orchestrator:
                 - max_seq_length: Maximum sequence length
                 - lora_r: LoRA rank
                 - lora_alpha: LoRA alpha parameter
-                - lora_dropout: LoRA dropout rate
-                - gradient_accumulation_steps: Gradient accumulation steps
 
         Returns:
             Optional[Dict[str, Any]]: Training results containing:
@@ -276,6 +274,9 @@ class Orchestrator:
                 lora_alpha=training_config.get("lora_alpha", 16),
                 lora_dropout=training_config.get("lora_dropout", 0.05),
                 gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 1),
+                enable_early_stopping=training_config.get("enable_early_stopping", False),
+                early_stopping_patience=training_config.get("early_stopping_patience"),
+                early_stopping_threshold=training_config.get("early_stopping_threshold"),
             )
 
             self.logger.info(f"Dataset: {config.dataset_dir}")
@@ -290,6 +291,10 @@ class Orchestrator:
             self.logger.info(f"  - LoRA alpha: {config.lora_alpha}")
             self.logger.info(f"  - LoRA dropout: {config.lora_dropout}")
             self.logger.info(f"  - Gradient accumulation: {config.gradient_accumulation_steps}")
+            if config.enable_early_stopping:
+                self.logger.info(
+                    f"  - Early stopping enabled: patience={config.early_stopping_patience}, threshold={config.early_stopping_threshold}"
+                )
 
             # Execute training
             self.logger.info("Initiating fine-tuning process...")
