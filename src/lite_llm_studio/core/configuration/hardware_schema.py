@@ -33,7 +33,6 @@ class CPUInfoModel(BaseConfigModel):
     """
 
     brand: StrictStr = Field(..., description="CPU brand name")
-    arch: StrictStr = Field(..., description="CPU architecture")
     cores: PositiveInt = Field(..., description="Number of CPU cores")
     threads: PositiveInt = Field(..., description="Number of CPU threads")
     frequency: Annotated[int | float, Field(..., gt=0, description="CPU frequency in GHz")]

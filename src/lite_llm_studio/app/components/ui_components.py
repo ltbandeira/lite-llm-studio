@@ -89,10 +89,9 @@ def create_system_cpu_card_html(os_info: dict[str, Any], cpu_info: dict[str, Any
     <div class="syscpu-tags">
     <span class="chip sm">{os_info.get("system","—")}</span>
     <span class="chip sm">{os_info.get("version","—")}</span>
-    <span class="chip sm">{os_info.get("arch","—")}</span>
     </div>
     </div>
-    <div class="spec-grid">
+    <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; padding: 14px 0;">
     <div class="spec-row">
         <div class="spec-label">CPU Model</div>
         <div class="spec-value" title="{cpu_info.get("brand","—")}">{cpu_info.get("brand","—")}</div>
@@ -104,10 +103,6 @@ def create_system_cpu_card_html(os_info: dict[str, Any], cpu_info: dict[str, Any
     <div class="spec-row">
         <div class="spec-label">Base Frequency</div>
         <div class="spec-value">{cpu_info.get("frequency","—")} GHz</div>
-    </div>
-    <div class="spec-row">
-        <div class="spec-label">Architecture</div>
-        <div class="spec-value">{os_info.get("arch","—")}</div>
     </div>
     </div>
     """
@@ -225,15 +220,13 @@ def create_storage_card_html(disks: list[dict[str, Any]]) -> str:
         bar_class = f"storage-bar {'warn' if cls=='warn' else ('bad' if cls=='bad' else '')}"
 
         html += (
-            '<div class="storage-row">'
+            '<div class="storage-row" style="display: grid; grid-template-columns: 60px 1fr 65px 160px; gap: 10px 10px; align-items: center;">'
             f'  <div class="storage-name">{name}</div>'
             f'  <div class="{bar_class}" title="{format_gb(used)} / {format_gb(total)}">'
             f'    <span style="width:{pct:.0f}%"></span>'
             "  </div>"
-            '  <div class="storage-badges">'
-            f'    <span class="chip {"ok" if cls=="ok" else ("warn" if cls=="warn" else "bad")}">{label}</span>'
-            f'    <span class="chip">{format_gb(used)} / {format_gb(total)} ({pct:.0f}%)</span>'
-            "  </div>"
+            f'  <span class="chip {"ok" if cls=="ok" else ("warn" if cls=="warn" else "bad")}" style="text-align: center;">{label}</span>'
+            f'  <span class="chip">{format_gb(used)} / {format_gb(total)} ({pct:.0f}%)</span>'
             "</div>"
         )
 
