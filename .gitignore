@@ -49,6 +49,9 @@ dist/
 build/
 hardware_report.json
 
+# External dependencies
+llama.cpp/
+
 # System files
 .DS_Store
 Thumbs.db
