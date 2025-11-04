@@ -101,7 +101,6 @@ class Orchestrator:
             # Log CPU information
             self.logger.info(f"CPU: {hardware_report.cpu.brand}")
             self.logger.debug(f"  Cores: {hardware_report.cpu.cores} physical, {hardware_report.cpu.threads} threads")
-            self.logger.debug(f"  Architecture: {hardware_report.cpu.arch}")
             if hardware_report.cpu.frequency:
                 self.logger.debug(f"  Max Frequency: {hardware_report.cpu.frequency} GHz")
 
