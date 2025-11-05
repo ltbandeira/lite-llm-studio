@@ -70,7 +70,7 @@ class ModelRecommendationStep(PipelineStep):
                 <div class="kpi-card" style="grid-column: span 4;">
                     <div class="kpi-icon">{self.config.icon}</div>
                     <div class="kpi-body">
-                        <div class="kpi-label">Step 1 of 4</div>
+                        <div class="kpi-label">Step 1 of 5</div>
                         <div class="kpi-value">{self.config.label}</div>
                         <div class="kpi-help">{self.config.description}</div>
                     </div>
@@ -111,7 +111,7 @@ class DataPreparationStep(PipelineStep):
                 <div class="kpi-card" style="grid-column: span 4;">
                     <div class="kpi-icon">{self.config.icon}</div>
                     <div class="kpi-body">
-                        <div class="kpi-label">Step 2 of 4</div>
+                        <div class="kpi-label">Step 2 of 5</div>
                         <div class="kpi-value">{self.config.label}</div>
                         <div class="kpi-help">{self.config.description}</div>
                     </div>
@@ -362,7 +362,7 @@ class DryRunStep(PipelineStep):
                 <div class="kpi-card" style="grid-column: span 4;">
                     <div class="kpi-icon">{self.config.icon}</div>
                     <div class="kpi-body">
-                        <div class="kpi-label">Step 3 of 4</div>
+                        <div class="kpi-label">Step 3 of 5</div>
                         <div class="kpi-value">{self.config.label}</div>
                         <div class="kpi-help">{self.config.description}</div>
                     </div>
@@ -410,7 +410,7 @@ class TrainingStep(PipelineStep):
                 <div class="kpi-card" style="grid-column: span 4;">
                     <div class="kpi-icon">{self.config.icon}</div>
                     <div class="kpi-body">
-                        <div class="kpi-label">Step 4 of 4</div>
+                        <div class="kpi-label">Step 4 of 5</div>
                         <div class="kpi-value">{self.config.label}</div>
                         <div class="kpi-help">{self.config.description}</div>
                     </div>
@@ -736,6 +736,323 @@ class TrainingStep(PipelineStep):
         return True, "Ready to train"
 
 
+class ModelExportStep(PipelineStep):
+    """Model export step with GGUF conversion and evaluation."""
+
+    def render_ui(self) -> None:
+        """Render UI for model export step."""
+        st.markdown(
+            f"""
+            <div class="kpi-grid">
+                <div class="kpi-card" style="grid-column: span 4;">
+                    <div class="kpi-icon">{self.config.icon}</div>
+                    <div class="kpi-body">
+                        <div class="kpi-label">Step 5 of 5</div>
+                        <div class="kpi-value">{self.config.label}</div>
+                        <div class="kpi-help">{self.config.description}</div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("---")
+
+        # Check if we have a trained model
+        trained_model = st.session_state.get("tp_context", {}).get("trained_model")
+        if not trained_model:
+            st.warning("No trained model found. Please complete the Training step first.")
+            return
+
+        # Check if evaluation has been completed
+        eval_results = st.session_state.get("tp_eval_results")
+        gguf_path = st.session_state.get("tp_gguf_model_path")
+
+        if not eval_results or not gguf_path:
+            # Show simple interface for starting the process
+            st.markdown("#### Model Export & Evaluation")
+            st.markdown(
+                """
+                This will automatically:
+                - Convert your fine-tuned model to **GGUF format** with your chosen quantization
+                - Evaluate the model using **perplexity** on validation data
+                - Compare performance against the base model
+                """
+            )
+
+            # Quantization selector
+            col1, col2 = st.columns([2, 3])
+            with col1:
+                quantization = st.selectbox(
+                    "Quantization Format",
+                    options=["f16", "bf16", "q8_0", "f32"],
+                    index=0,
+                    help=(
+                        "• f16: Float16 - Recommended (good quality, reasonable size)\n"
+                        "• bf16: BFloat16 - Better numerical stability\n"
+                        "• q8_0: 8-bit quantization - Smaller size, slight quality loss\n"
+                        "• f32: Float32 - No compression (largest, highest precision)"
+                    ),
+                    key="tp_quantization_format",
+                )
+                # Store selection
+                st.session_state.tp_quantization_selected = quantization
+
+            with col2:
+                st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
+
+            st.markdown('<div style="height: 12px;"></div>', unsafe_allow_html=True)
+
+            # Check if validation dataset exists
+            dataset_dir = st.session_state.get("tp_selected_dataset")
+            has_validation = False
+            if dataset_dir:
+                validation_file = Path(dataset_dir) / "validation.jsonl"
+                has_validation = validation_file.exists()
+
+            if not has_validation:
+                st.warning(
+                    "**No validation dataset found.** Model will be converted to GGUF, "
+                    "but perplexity evaluation will be skipped.\n\n"
+                    "To enable evaluation, ensure your dataset includes a `validation.jsonl` file."
+                )
+
+            st.markdown('<div style="height: 16px;"></div>', unsafe_allow_html=True)
+
+        else:
+            # Show results after execution
+            st.markdown("#### Model Export Completed")
+            st.success(f"**GGUF Model saved:** `{Path(gguf_path).name}`")
+            st.caption("This is a complete standalone model - ready to use!")
+
+            # Show evaluation results
+            st.markdown("---")
+            st.markdown("#### Evaluation Results")
+
+            # Metrics in columns
+            col_m1, col_m2, col_m3 = st.columns(3)
+
+            with col_m1:
+                st.metric("Base Model Perplexity", f"{eval_results['base_perplexity']:.2f}", help="Lower is better")
+
+            with col_m2:
+                st.metric(
+                    "Fine-tuned Model Perplexity",
+                    f"{eval_results['finetuned_perplexity']:.2f}",
+                    delta=f"{-eval_results['improvement']:.2f}",
+                    delta_color="inverse",
+                    help="Lower is better. Delta shows improvement.",
+                )
+
+            with col_m3:
+                improvement_pct = eval_results["improvement_pct"]
+                st.metric(
+                    "Improvement",
+                    f"{abs(improvement_pct):.1f}%",
+                    delta="Better" if improvement_pct > 0 else "Worse",
+                    delta_color="normal" if improvement_pct > 0 else "inverse",
+                    help="Percentage improvement in perplexity",
+                )
+
+            # Visual comparison
+
+            base_ppl = eval_results["base_perplexity"]
+            finetuned_ppl = eval_results["finetuned_perplexity"]
+            max_ppl = max(base_ppl, finetuned_ppl)
+
+            base_width = (base_ppl / max_ppl) * 100
+            finetuned_width = (finetuned_ppl / max_ppl) * 100
+
+            st.markdown(
+                f"""
+                <div style="margin: 20px 0;">
+                    <div style="margin-bottom: 16px;">
+                        <div style="font-weight: 600; margin-bottom: 6px; color: var(--text);">
+                            Base Model ({eval_results['quantization']})
+                        </div>
+                        <div style="background: #f1f5f9; border-radius: 8px; overflow: hidden; height: 32px; position: relative;">
+                            <div style="
+                                background: linear-gradient(90deg, #ef4444, #dc2626);
+                                height: 100%;
+                                width: {base_width}%;
+                                display: flex;
+                                align-items: center;
+                                justify-content: flex-end;
+                                padding-right: 12px;
+                                color: white;
+                                font-weight: 700;
+                                font-size: 0.9rem;
+                            ">
+                                {base_ppl:.2f}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-weight: 600; margin-bottom: 6px; color: var(--text);">
+                            Fine-tuned Model ({eval_results['quantization']})
+                        </div>
+                        <div style="background: #f1f5f9; border-radius: 8px; overflow: hidden; height: 32px; position: relative;">
+                            <div style="
+                                background: linear-gradient(90deg, #10b981, #059669);
+                                height: 100%;
+                                width: {finetuned_width}%;
+                                display: flex;
+                                align-items: center;
+                                justify-content: flex-end;
+                                padding-right: 12px;
+                                color: white;
+                                font-weight: 700;
+                                font-size: 0.9rem;
+                            ">
+                                {finetuned_ppl:.2f}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            # Interpretation
+            st.markdown("**Interpretation**")
+            if improvement_pct > 15:
+                st.success(
+                    f"**Excellent!** Your fine-tuned model shows significant improvement "
+                    f"({improvement_pct:.1f}% better perplexity). The model has successfully "
+                    f"adapted to your domain-specific data."
+                )
+            elif improvement_pct > 0:
+                st.info(
+                    f"**Good!** Your fine-tuned model shows improvement ({improvement_pct:.1f}% better). "
+                    f"Consider training for more epochs or with more data for further gains."
+                )
+            else:
+                st.warning(
+                    f"The fine-tuned model shows {abs(improvement_pct):.1f}% worse perplexity. "
+                    f"This could indicate overfitting, insufficient training data, or that the base "
+                    f"model was already well-suited for this task. "
+                )
+
+    def execute(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Execute backend logic for model export (conversion and evaluation)."""
+        self.logger.info("Executing model export step")
+
+        try:
+            from lite_llm_studio.core.configuration.desktop_app_config import get_default_models_directory
+            from lite_llm_studio.core.ml.evaluation import evaluate_model_perplexity
+            from lite_llm_studio.core.ml.model_converter import convert_finetuned_model_to_gguf, convert_hf_to_gguf
+
+            # Get trained model path
+            trained_model = context.get("trained_model")
+            if not trained_model:
+                raise ValueError("No trained model found in context")
+
+            # Get base model and output name
+            base_model = st.session_state.get("tp_base_model_path") or st.session_state.get("tp_selected_model")
+            output_name = st.session_state.get("tp_output_model_name", "finetuned_model")
+            quantization = st.session_state.get("tp_quantization_selected", "f16")
+
+            if not base_model:
+                raise ValueError("Base model path not found")
+
+            # Convert to GGUF
+            self.logger.info(f"Converting fine-tuned model to GGUF ({quantization})...")
+            models_dir = str(get_default_models_directory())
+            result = convert_finetuned_model_to_gguf(
+                adapter_path=str(trained_model),
+                base_model_path=str(base_model),
+                output_name=output_name,
+                quantization=quantization,
+                models_dir=models_dir,
+            )
+            gguf_path = result["gguf_model"]
+            st.session_state.tp_gguf_model_path = gguf_path
+            st.session_state.tp_quantization_used = quantization
+            st.session_state.tp_base_model_path = str(base_model)
+            self.logger.info(f"GGUF model created: {gguf_path}")
+
+            # Evaluate if validation dataset exists
+            eval_results = None
+            dataset_dir = st.session_state.get("tp_selected_dataset")
+            if dataset_dir:
+                validation_file = Path(dataset_dir) / "validation.jsonl"
+                if validation_file.exists():
+                    max_samples = 100  # Fixed to 100 samples
+
+                    self.logger.info(f"Starting model evaluation with {max_samples} samples...")
+                    self.logger.info(f"Both models will use {quantization} quantization for fair comparison")
+
+                    # Convert base model to GGUF with same quantization
+                    self.logger.info(f"Converting base model to GGUF ({quantization})...")
+                    models_dir_path = Path(get_default_models_directory())
+                    base_gguf_dir = models_dir_path / f"_eval_base_{Path(base_model).name}"
+                    base_gguf_dir.mkdir(parents=True, exist_ok=True)
+
+                    base_gguf_path = convert_hf_to_gguf(
+                        model_path=str(base_model), output_path=str(base_gguf_dir), quantization=quantization, output_name="base_model_eval"
+                    )
+                    self.logger.info(f"Base model GGUF created: {base_gguf_path}")
+
+                    # Evaluate base model
+                    self.logger.info("=" * 80)
+                    self.logger.info("EVALUATING BASE MODEL (Step 1/2)")
+                    self.logger.info("=" * 80)
+                    base_perplexity = evaluate_model_perplexity(
+                        model_path=base_gguf_path, validation_file=str(validation_file), max_samples=int(max_samples)
+                    )
+                    self.logger.info(f"Base model perplexity: {base_perplexity:.2f}")
+
+                    # Evaluate fine-tuned model
+                    self.logger.info("=" * 80)
+                    self.logger.info("EVALUATING FINE-TUNED MODEL (Step 2/2)")
+                    self.logger.info("=" * 80)
+                    finetuned_perplexity = evaluate_model_perplexity(
+                        model_path=gguf_path, validation_file=str(validation_file), max_samples=int(max_samples)
+                    )
+                    self.logger.info(f"Fine-tuned model perplexity: {finetuned_perplexity:.2f}")
+
+                    # Calculate improvement
+                    improvement = base_perplexity - finetuned_perplexity
+                    improvement_pct = ((base_perplexity - finetuned_perplexity) / base_perplexity) * 100
+
+                    # Store results
+                    eval_results = {
+                        "base_perplexity": base_perplexity,
+                        "finetuned_perplexity": finetuned_perplexity,
+                        "improvement": improvement,
+                        "improvement_pct": improvement_pct,
+                        "quantization": quantization,
+                        "samples_evaluated": max_samples,
+                    }
+                    st.session_state.tp_eval_results = eval_results
+
+                    # Log summary
+                    self.logger.info("=" * 80)
+                    self.logger.info("EVALUATION SUMMARY")
+                    self.logger.info("=" * 80)
+                    self.logger.info(f"Quantization used: {quantization} (same for both models)")
+                    self.logger.info(f"Samples evaluated: {max_samples}")
+                    self.logger.info(f"Base model perplexity: {base_perplexity:.2f}")
+                    self.logger.info(f"Fine-tuned model perplexity: {finetuned_perplexity:.2f}")
+                    self.logger.info(f"Improvement: {improvement:.2f} ({improvement_pct:+.1f}%)")
+                    self.logger.info("=" * 80)
+
+            return {"gguf_model": gguf_path, "evaluation_results": eval_results}
+
+        except Exception as e:
+            self.logger.error(f"Model export failed: {e}", exc_info=True)
+            raise
+
+    def validate(self, context: dict[str, Any]) -> tuple[bool, str]:
+        """Validate if model export step can be executed."""
+        trained_model = context.get("trained_model")
+        if not trained_model:
+            return False, "Please complete the Training step first"
+
+        return True, "Ready to export and evaluate model"
+
+
 # Pipeline registry
 PIPELINE_REGISTRY: list[tuple[PipelineStepConfig, type[PipelineStep]]] = [
     (
@@ -770,6 +1087,15 @@ PIPELINE_REGISTRY: list[tuple[PipelineStepConfig, type[PipelineStep]]] = [
             key="training", label="Training", icon=ICONS.get("play", ""), description="Execute the fine-tuning process and monitor training progress."
         ),
         TrainingStep,
+    ),
+    (
+        PipelineStepConfig(
+            key="model_export",
+            label="Model Export",
+            icon=ICONS.get("save", ""),
+            description="Convert your model to GGUF format and evaluate its performance.",
+        ),
+        ModelExportStep,
     ),
 ]
 
@@ -961,7 +1287,7 @@ def _render_step_panel() -> None:
     # Aviso de processamento e controles visuais
     if is_processing:
         # Esconde o footer APENAS enquanto processa (sem reescrever o layout original)
-        if step_key in ("data_prep", "training"):
+        if step_key in ("data_prep", "training", "model_export"):
             footer_css_slot.markdown(
                 """
                 <style>
@@ -977,8 +1303,9 @@ def _render_step_panel() -> None:
             "data_prep": "Processing documents and creating dataset...",
             "dry_run": "",
             "training": "Training model...",
+            "model_export": "Converting model to GGUF and evaluating performance...",
         }
-        processing_msg = step_messages.get(step_key, "Processing... Please wait.")
+        processing_msg = step_messages.get(step_key, "Processing...")
 
         # Banner “loading”
         st.markdown(
@@ -1102,71 +1429,18 @@ def _render_step_panel() -> None:
 
     st.markdown('<div style="height: 8px;"></div>', unsafe_allow_html=True)
 
-    # Finalização (GGUF etc.) – inalterado
+    # Finish Pipeline button (only on last step)
     if i == pipeline.get_step_count() - 1:
         finished = all(st.session_state.tp_completed)
-        if st.button("Finish Pipeline", key="tp_finish", disabled=not finished, use_container_width=True):
+        if st.button("Finish Pipeline & Return to Home", key="tp_finish", disabled=not finished, use_container_width=True, type="primary"):
             try:
-                final_result = st.session_state.tp_context.get("trained_model")
-                if final_result:
-                    st.session_state.tp_result_model = final_result
-                    st.session_state.tp_pipeline_finished = True
-                    st.success("Pipeline completed successfully! The trained model is now available.")
-                    st.rerun()
-                else:
-                    st.warning("Pipeline completed but no trained model was found in context.")
+                # Clear pipeline state
+                st.session_state.tp_pipeline_finished = True
+                st.session_state.current_page = "Home"
+                st.success("Pipeline completed successfully!")
+                st.rerun()
             except Exception as e:
                 st.error(f"Error finishing pipeline: {str(e)}")
-
-        if st.session_state.get("tp_pipeline_finished", False) and st.session_state.get("tp_result_model"):
-            st.markdown("---")
-            st.markdown("#### Convert to GGUF")
-            col1, col2 = st.columns(2)
-            with col1:
-                quantization = st.selectbox(
-                    "Quantization Format",
-                    options=["f16", "bf16", "q8_0", "f32"],
-                    index=0,
-                    help=(
-                        "• f16: Float16 - Recommended for most cases (good quality, reasonable size)\n"
-                        "• bf16: BFloat16 - Better numerical stability than f16\n"
-                        "• q8_0: 8-bit quantization - Smaller size, slight quality loss\n"
-                        "• f32: Float32 - No compression (largest size, highest precision)"
-                    ),
-                    key="tp_gguf_quant",
-                )
-            if st.button("Convert to GGUF", key="tp_convert_gguf", type="primary"):
-                try:
-                    with st.spinner("Converting model to GGUF..."):
-                        from lite_llm_studio.core.configuration import get_default_models_directory
-                        from lite_llm_studio.core.ml.model_converter import convert_finetuned_model_to_gguf
-
-                        final_result = st.session_state.get("tp_result_model")
-                        base_model = st.session_state.get("tp_selected_model")
-                        output_name = st.session_state.get("tp_output_model_name", "finetuned_model")
-
-                        if not final_result:
-                            raise ValueError("No trained model path available")
-                        if not base_model:
-                            raise ValueError("No base model path available")
-
-                        models_dir = str(get_default_models_directory())
-                        logger.info(f"Converting model to GGUF: adapter={final_result}, base={base_model}, quant={quantization}, name={output_name}")
-                        result = convert_finetuned_model_to_gguf(
-                            adapter_path=str(final_result),
-                            base_model_path=str(base_model),
-                            output_name=output_name,
-                            quantization=quantization,
-                            models_dir=models_dir,
-                        )
-                        st.success("GGUF model conversion completed successfully!")
-                        st.markdown("#### Generated Files")
-                        st.markdown("**GGUF Model:**")
-                        st.code(result["gguf_model"], language=None)
-                        st.caption("This is a **complete standalone model** - ready to use!")
-                except Exception as e:
-                    st.error(f"Conversion Error: {str(e)}")
-                    logger.error(f"GGUF conversion error: {e}", exc_info=True)
 
 
 def _render_pipeline_summary() -> None:
