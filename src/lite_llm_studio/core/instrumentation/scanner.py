@@ -120,7 +120,6 @@ class HardwareScanner:
             cpu_brand = platform.processor()
             cpu_cores = psutil.cpu_count(logical=False) or 1
             cpu_threads = psutil.cpu_count(logical=True) or 1
-            cpu_arch = platform.machine() or "Unknown"
             cpu_freq: float | None = None
 
             # Workaround for missing brand info on Windows
@@ -166,7 +165,6 @@ class HardwareScanner:
 
             cpu_info = CPUInfoModel(
                 brand=cpu_brand or "Unknown",
-                arch=cpu_arch,
                 cores=cpu_cores,
                 threads=cpu_threads,
                 frequency=cpu_freq,

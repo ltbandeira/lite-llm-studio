@@ -126,7 +126,6 @@ def render_models_directory_section():
     info_col, action_col = st.columns([5, 2], gap="small", vertical_alignment="bottom")
 
     with info_col:
-        st.markdown(f"**Models Directory:** `{dir_path}`")
         stats_l, stats_c, stats_r = st.columns([1, 1, 1])
         with stats_l:
             st.markdown("**Directory:** Ready" if models_info["exists"] else "**Directory:** Missing")
@@ -259,7 +258,7 @@ def render_model_selection_section():
                     # Reset configuration to defaults for the new model
                     st.session_state.model_config = {
                         "temperature": 0.7,
-                        "max_tokens": 2048,
+                        "max_tokens": 1024,
                         "top_p": 0.9,
                         "context_length": 4096,
                         "use_gpu": False,
@@ -366,7 +365,7 @@ def render_model_configuration_section():
             "Max Tokens",
             min_value=1,
             max_value=8192,
-            value=st.session_state.model_config.get("max_tokens", 2048),
+            value=st.session_state.model_config.get("max_tokens", 1024),
             help="Maximum number of tokens to generate",
         )
 
@@ -601,9 +600,6 @@ def load_model():
         logger.info(f"  gpu_layers from config: {st.session_state.model_config.get('gpu_layers', 'NOT_SET')}")
         logger.info(f"  calculated gpu_layers: {gpu_layers}")
         logger.info(f"  runtime_spec.n_gpu_layers: {runtime_spec.n_gpu_layers}")
-
-        # Show debug info in UI temporarily
-        st.info(f"Debug: GPU={use_gpu}, Layers={gpu_layers}, Config={st.session_state.model_config.get('use_gpu', 'NOT_SET')}")
 
         # Determine the correct runtime based on model format
         is_transformers_model = model_card.runtime == "transformers"
