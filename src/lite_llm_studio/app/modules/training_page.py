@@ -324,12 +324,28 @@ def _measure_forward(model, batch_tokens, device_info: dict[str, Any]) -> float:
     try:
         import torch  # type: ignore
 
+        logger.info("Starting forward pass measurement")
+        
         with torch.no_grad():
+            # Clear cache before measurement
+            if device_info.get("has_cuda"):
+                try:
+                    torch.cuda.empty_cache()
+                    logger.info("Cleared CUDA cache")
+                except Exception:
+                    pass
+            
             start = time.perf_counter()
-            _ = model(**batch_tokens)
+            logger.info("Executing model forward pass...")
+            outputs = model(**batch_tokens)
+            logger.info("Forward pass completed")
             end = time.perf_counter()
-            return max(0.0, end - start)
-    except Exception:
+            
+            elapsed = max(0.0, end - start)
+            logger.info(f"Forward pass took {elapsed:.2f} seconds")
+            return elapsed
+    except Exception as e:
+        logger.error(f"Error during forward pass: {e}", exc_info=True)
         return float("nan")
 
 
@@ -826,6 +842,15 @@ class DataPreparationStep(PipelineStep):
             height=100,
         )
 
+        # Add skip button
+        st.markdown("---")
+        if st.button("Pular Preparação de Dados", use_container_width=True, key="dp_skip_btn"):
+            # Mark as completed even though skipped
+            st.session_state.tp_context["data_prep_skipped"] = True
+            st.session_state.tp_context["dataset_config"] = None
+            st.info("Preparação de dados pulada. Prosseguindo sem dataset processado.")
+            st.rerun()
+
         # Store configuration in session state
         if uploaded_files:
             st.session_state.dp_uploaded_files = uploaded_files
@@ -849,6 +874,15 @@ class DataPreparationStep(PipelineStep):
     def execute(self, context: dict[str, Any]) -> dict[str, Any]:
         """Execute backend logic for data preparation."""
         self.logger.info("Executing data preparation step")
+
+        # Check if step was skipped
+        if context.get("data_prep_skipped"):
+            self.logger.info("Data preparation step skipped")
+            return {
+                "processing_job": None,
+                "dataset_config": None,
+                "chunks_files": [],
+            }
 
         try:
             # Get uploaded files from session state
@@ -966,10 +1000,14 @@ class DataPreparationStep(PipelineStep):
 
     def validate(self, context: dict[str, Any]) -> tuple[bool, str]:
         """Validate if this step can be executed."""
+        # Check if step was skipped
+        if context.get("data_prep_skipped"):
+            return True, "Data preparation skipped - proceeding without processed dataset"
+        
         uploaded_files = st.session_state.get("dp_uploaded_files", [])
 
         if not uploaded_files:
-            return False, "Please upload at least one PDF file"
+            return False, "Please upload at least one PDF file or skip this step"
 
         dataset_name = st.session_state.get("dp_config", {}).get("dataset_name", "").strip()
         if not dataset_name:
@@ -1094,23 +1132,29 @@ class DryRunStep(PipelineStep):
                 status.info("Preparando texto…")
                 
                 if use_prepared_dataset:
-                    # Load from prepared dataset
-                    text, total_bytes, desc = _load_text_from_dataset(dataset_path, max_samples)
+                    # Load from prepared dataset (limit samples for safety)
+                    safe_max_samples = min(max_samples, 50)  # Limit to 50 samples for dry run
+                    logger.info(f"Loading prepared dataset, max samples: {safe_max_samples}")
+                    text, total_bytes, desc = _load_text_from_dataset(dataset_path, safe_max_samples)
                     if total_bytes == 0:
                         st.error(desc or "Falha ao carregar dataset preparado.")
                         return
                     dataset_desc = desc
+                    logger.info(f"Loaded {total_bytes} bytes from prepared dataset")
                     
                 else:
-                    # Load from built-in dataset
+                    # Load from built-in dataset (limit to 500KB for safety)
+                    safe_target_bytes = min(int(target_mb * 1_000_000), 500_000)
+                    logger.info(f"Loading built-in dataset, target bytes: {safe_target_bytes}")
                     text, total_bytes, desc = _load_builtin_text(
                         "wikitext-2" if builtin_name == "wikitext-2" else ("wikitext-103" if builtin_name == "wikitext-103" else "ag_news"),
-                        target_bytes=int(target_mb * 1_000_000),
+                        target_bytes=safe_target_bytes,
                     )
                     if total_bytes == 0:
                         st.error(desc or "Falha ao carregar dataset.")
                         return
-                    dataset_desc = f"{desc} ~{target_mb} MB"
+                    dataset_desc = f"{desc} ~{total_bytes / 1_000_000:.1f} MB"
+                    logger.info(f"Loaded {total_bytes} bytes from built-in dataset")
 
                 if not device_info.get("has_torch"):
                     st.error("PyTorch/Transformers não instalado. Instale: pip install torch transformers datasets")
@@ -1136,12 +1180,21 @@ class DryRunStep(PipelineStep):
                 progress.progress(60)
                 status.info("Tokenizando com truncamento…")
                 max_len = _resolve_max_len(model, tok)
-                batch_tokens, seq_len = _tokenize_with_truncation(tok, text, device_info, max_len)
-                truncated_note = " (truncado)" if seq_len == max_len else ""
+                
+                # Limit max_len to prevent memory issues (use smaller context for dry run)
+                safe_max_len = min(max_len, 512)  # Limit to 512 tokens for dry run
+                logger.info(f"Using max_len={safe_max_len} for dry run (model supports {max_len})")
+                
+                batch_tokens, seq_len = _tokenize_with_truncation(tok, text, device_info, safe_max_len)
+                truncated_note = " (truncado)" if seq_len == safe_max_len else ""
+                
+                logger.info(f"Tokenization complete: {seq_len} tokens")
 
                 progress.progress(80)
-                status.info("Executando forward…")
+                status.info(f"Executando forward… ({seq_len} tokens)")
+                logger.info(f"About to measure forward pass with {seq_len} tokens")
                 proc_s = _measure_forward(model, batch_tokens, device_info)
+                logger.info(f"Forward measurement returned: {proc_s}")
 
                 progress.progress(90)
                 status.info("Coletando memória pós-inferência…")
@@ -1149,11 +1202,48 @@ class DryRunStep(PipelineStep):
 
                 progress.progress(100)
                 status.success("Dry Run concluído.")
+                
+                # Check if forward pass failed
+                if proc_s != proc_s:  # Check for NaN
+                    st.warning("⚠️ Forward pass falhou. Verifique os logs para mais detalhes. Isso pode indicar problemas de memória.")
+                    
+            except Exception as dry_run_error:
+                logger.error(f"Dry run failed: {dry_run_error}", exc_info=True)
+                progress.progress(100)
+                status.error(f"Erro durante o Dry Run: {str(dry_run_error)}")
+                st.error(f"""
+                    **Erro durante o Dry Run:**
+                    
+                    {str(dry_run_error)}
+                    
+                    **Possíveis causas:**
+                    - Memória insuficiente (RAM ou VRAM)
+                    - Modelo muito grande para o hardware
+                    - Problemas com PyTorch/CUDA
+                    
+                    **Sugestões:**
+                    - Tente um modelo menor
+                    - Feche outros programas para liberar memória
+                    - Use o botão "Pular Dry Run" para prosseguir
+                """)
+                
+                # Try to clean up
+                try:
+                    import torch
+                    if device_info.get("has_cuda"):
+                        torch.cuda.empty_cache()
+                    del model, tok
+                except Exception:
+                    pass
+                return
             finally:
                 time.sleep(0.2)
 
             # Determine actual device robustly
-            actual_device = _infer_actual_device(model, batch_tokens, device_info)
+            try:
+                actual_device = _infer_actual_device(model, batch_tokens, device_info)
+            except Exception:
+                actual_device = "cpu"
 
             # Render results card
             rows = []
