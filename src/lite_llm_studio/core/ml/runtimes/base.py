@@ -7,6 +7,7 @@ Module core.ml.runtimes.base
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from lite_llm_studio.core.configuration.model_schema import GenParams, ModelCard, RuntimeSpec
 
@@ -23,7 +24,7 @@ class BaseRuntime(ABC):
     def load(self, card: ModelCard, spec: RuntimeSpec) -> None: ...
 
     @abstractmethod
-    def generate(self, history: list[dict], params: GenParams) -> str: ...
+    def generate(self, history: list[dict], params: GenParams) -> dict[str, Any] | str: ...
 
     @abstractmethod
     def unload(self) -> None: ...

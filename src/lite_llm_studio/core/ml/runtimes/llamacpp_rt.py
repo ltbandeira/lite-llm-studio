@@ -35,9 +35,9 @@ CHAT_TEMPLATES = {
     "Mistral": {
         "system": "<s>[INST] {system_prompt}\n\n",
         "user": "{message} [/INST]",
-        "assistant": " {message} </s>[INST] ",
-        "conversation_end": "[/INST]",
-        "simple_format": "System: {system_prompt}\n\nUser: {user_message}\nAssistant:",
+        "assistant": " {message}",
+        "conversation_end": " ",
+        "simple_format": "<s>[INST] {system_prompt}\n\n{user_message} [/INST]",
     },
     "Phi": {
         "system": "System: {system_prompt}\n\n",
@@ -105,6 +105,7 @@ class LlamaCppRuntime(BaseRuntime):
             "n_ctx": spec.n_ctx,
             "n_threads": spec.n_threads,
             "verbose": True,
+            "chat_format": None,  # Disable llama-cpp-python's internal chat formatting
         }
         # GPU (se desejar/possível) - permite -1 para todas as camadas
         if spec.n_gpu_layers is not None and spec.n_gpu_layers != 0:
@@ -186,6 +187,7 @@ class LlamaCppRuntime(BaseRuntime):
         """Format full multi-turn conversation using model-specific templates."""
         parts = []
         has_system_in_history = False
+        family = self._card.family if self._card else "Unknown"
 
         # Check if there's a system message in history
         for msg in history:
@@ -205,10 +207,19 @@ class LlamaCppRuntime(BaseRuntime):
                 continue
 
             if role == "system":
-                parts.append(template["system"].format(system_prompt=content))
+                # Only add if not already added from card
+                if has_system_in_history:
+                    parts.append(template["system"].format(system_prompt=content))
             elif role == "user":
-                if i == len(history) - 1:  # Last message (current user input)
-                    parts.append(template["user"].format(message=content))
+                # For Mistral, we need special handling
+                if family == "Mistral":
+                    # Check if this is after an assistant message
+                    if i > 0 and history[i - 1].get("role") == "assistant":
+                        # Add </s> before [INST] for new turn
+                        parts.append(f"</s>[INST] {content} [/INST]")
+                    else:
+                        # First user message or after system
+                        parts.append(template["user"].format(message=content))
                 else:
                     parts.append(template["user"].format(message=content))
             elif role == "assistant":
@@ -239,7 +250,7 @@ class LlamaCppRuntime(BaseRuntime):
         lines.append("Assistant:")
         return "\n\n".join(lines)
 
-    def generate(self, history: list[dict], params: GenParams) -> str:
+    def generate(self, history: list[dict], params: GenParams) -> dict[str, Any]:
         if not self._loaded or self._llm is None:
             raise RuntimeError("Runtime não carregado.")
 
@@ -269,15 +280,21 @@ class LlamaCppRuntime(BaseRuntime):
 
         # Log generation parameters for debugging
         self.logger.debug(
-            f"Generation params: max_tokens={params.max_new_tokens}, " f"temp={params.temperature}, repeat_penalty=1.15, stops={len(stop_tokens)}"
+            f"Generation params: max_tokens={params.max_new_tokens}, "
+            f"temp={params.temperature}, top_k={params.top_k}, repeat_penalty=1.15, stops={len(stop_tokens)}"
         )
 
         # Generate response with strong anti-repetition parameters
+        import time
+
+        start_time = time.time()
+
         out = self._llm(
             prompt=prompt,
             max_tokens=params.max_new_tokens,
             temperature=params.temperature,
             top_p=params.top_p,
+            top_k=params.top_k,
             repeat_penalty=1.15,  # Penalty to prevent repetition
             frequency_penalty=0.0,  # Let repeat_penalty handle this
             presence_penalty=0.0,  # Let repeat_penalty handle this
@@ -285,9 +302,36 @@ class LlamaCppRuntime(BaseRuntime):
             echo=False,  # Don't echo the prompt back
         )
 
-        # Extract text from llama-cpp response
-        text = (out.get("choices") or [{}])[0].get("text", "")
-        return text.strip()
+        end_time = time.time()
+        total_time = end_time - start_time
+
+        # Extract text and usage stats from llama-cpp response
+        choice = (out.get("choices") or [{}])[0]
+        text = choice.get("text", "")
+        usage = out.get("usage", {})
+
+        # Calculate metrics
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+        total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+
+        # Calculate tokens per second (for completion only)
+        tokens_per_second = completion_tokens / total_time if total_time > 0 else 0
+
+        # Log metrics
+        self.logger.info(f"Generation completed: {completion_tokens} tokens in {total_time:.2f}s " f"({tokens_per_second:.2f} tok/s)")
+
+        # Return text and metrics
+        return {
+            "text": text.strip(),
+            "metrics": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "total_time": total_time,
+                "tokens_per_second": tokens_per_second,
+            },
+        }
 
     def unload(self) -> None:
         """Unload model with proper cleanup to avoid AttributeError in __del__"""
