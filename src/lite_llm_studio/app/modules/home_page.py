@@ -75,6 +75,8 @@ def render_home_page():
         st.session_state.use_gpu = False
     if "gpu_layers" not in st.session_state:
         st.session_state.gpu_layers = 0
+    if "last_inference_metrics" not in st.session_state:
+        st.session_state.last_inference_metrics = None
 
     # Section 1: Models Directory and Indexing
     render_models_directory_section()
@@ -231,6 +233,7 @@ def render_model_selection_section():
                     "temperature": 0.7,
                     "max_tokens": 1024,
                     "top_p": 0.9,
+                    "top_k": 40,
                     "context_length": 4096,
                     "use_gpu": False,
                     "gpu_layers": 0,
@@ -332,17 +335,26 @@ def render_model_configuration_section():
             help="Controls randomness in responses",
         )
 
+        top_p = st.slider(
+            "Top P", min_value=0.0, max_value=1.0, value=st.session_state.model_config.get("top_p", 0.9), step=0.01, help="Nucleus sampling parameter"
+        )
+
+        top_k = st.number_input(
+            "Top K",
+            min_value=1,
+            max_value=100,
+            value=st.session_state.model_config.get("top_k", 40),
+            step=1,
+            help="Top-k sampling - limits token selection to k most likely candidates",
+        )
+
+    with col2:
         max_tokens = st.number_input(
             "Max Tokens",
             min_value=1,
             max_value=8192,
             value=st.session_state.model_config.get("max_tokens", 1024),
             help="Maximum number of tokens to generate",
-        )
-
-    with col2:
-        top_p = st.slider(
-            "Top P", min_value=0.0, max_value=1.0, value=st.session_state.model_config.get("top_p", 0.9), step=0.01, help="Nucleus sampling parameter"
         )
 
         context_length = st.number_input(
@@ -359,6 +371,7 @@ def render_model_configuration_section():
             "temperature": temperature,
             "max_tokens": max_tokens,
             "top_p": top_p,
+            "top_k": top_k,
             "context_length": context_length,
             "use_gpu": st.session_state.get("use_gpu", False),
             "gpu_layers": st.session_state.get("gpu_layers", 0),
@@ -447,6 +460,7 @@ def render_model_interaction_section():
             st.session_state.chat_history = []
             st.session_state.message_counter = 0
             st.session_state.pending_user_msg = None
+            st.session_state.last_inference_metrics = None
             st.rerun()
 
     # Chat history panel
@@ -470,8 +484,38 @@ def render_model_interaction_section():
             placeholder="Type your message…",
             height=100,
         )
-        bcol1, _ = st.columns([1, 7])
+        bcol1, bcol2 = st.columns([1, 6])
         send_clicked = bcol1.form_submit_button("Send", use_container_width=True)
+
+        # Display inference metrics next to Send button
+        with bcol2:
+            if st.session_state.get("last_inference_metrics"):
+                metrics = st.session_state.last_inference_metrics
+                tokens_per_sec = metrics.get("tokens_per_second", 0)
+                total_time = metrics.get("total_time", 0)
+                completion_tokens = metrics.get("completion_tokens", 0)
+
+                # Create compact metrics display
+                metrics_html = f"""
+                <div style="
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 10px 12px;
+                    font-size: 0.85em;
+                    color: var(--text-color);
+                    opacity: 0.8;
+                ">
+                    <span style="font-weight: 500;">{tokens_per_sec:.1f} tok/s</span>
+                    <span>•</span>
+                    <span>{completion_tokens} tokens</span>
+                    <span>•</span>
+                    <span>{total_time:.2f}s</span>
+                </div>
+                """
+                st.markdown(metrics_html, unsafe_allow_html=True)
+            else:
+                st.empty()
 
         if send_clicked:
             # Lê o conteúdo digitado DIRETO da variável do form
@@ -622,17 +666,30 @@ def send_message(message: str):
             gen_params = GenParams(
                 temperature=st.session_state.model_config.get("temperature", 0.7),
                 top_p=st.session_state.model_config.get("top_p", 0.9),
+                top_k=st.session_state.model_config.get("top_k", 40),
                 max_new_tokens=st.session_state.model_config.get("max_tokens", 256),
-                stop=["User:", "System:", "\n\nUser:", "\n\nSystem:"],  # Stop at conversation markers
+                # stop=["User:", "System:", "\n\nUser:", "\n\nSystem:"],  # Stop at conversation markers
             )
-            logger.debug(f"Generation params: temp={gen_params.temperature}, " f"top_p={gen_params.top_p}, max_tokens={gen_params.max_new_tokens}")
+            logger.debug(
+                f"Generation params: temp={gen_params.temperature}, "
+                f"top_p={gen_params.top_p}, top_k={gen_params.top_k}, max_tokens={gen_params.max_new_tokens}"
+            )
 
             # Generate response using the loaded model
             logger.debug("Generating model response...")
             with st.spinner("Generating response..."):
-                model_response = st.session_state.model_runtime.generate(
+                result = st.session_state.model_runtime.generate(
                     st.session_state.chat_history, gen_params  # Include all messages including current user message
                 )
+
+                # Handle both old (string) and new (dict) return formats
+                if isinstance(result, dict):
+                    model_response = result.get("text", "")
+                    st.session_state.last_inference_metrics = result.get("metrics")
+                else:
+                    # Fallback for old string format
+                    model_response = result
+                    st.session_state.last_inference_metrics = None
 
                 # Clean up the response
                 model_response = model_response.strip()
